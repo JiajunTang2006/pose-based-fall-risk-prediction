@@ -1,0 +1,37 @@
+{
+  "notes": "Default runtime thresholds. Pass this file with --config configs/default.json.",
+  "state_thresholds": {
+    "prefall_threshold": 0.45,
+    "fall_threshold": 0.72,
+    "min_visibility": 0.35
+  },
+  "temporal_smoothing": {
+    "baseline_frames": 15,
+    "smoothing_window": 5,
+    "prefall_consecutive_frames": 3,
+    "fall_consecutive_frames": 3
+  },
+  "risk_scoring": {
+    "torso_warn_deg": 25.0,
+    "torso_fall_deg": 75.0,
+    "angular_velocity_warn": 25.0,
+    "angular_velocity_fall": 120.0,
+    "vertical_velocity_warn": 0.22,
+    "vertical_velocity_fall": 0.85,
+    "center_drop_warn": 0.06,
+    "center_drop_fall": 0.22,
+    "aspect_ratio_warn": 0.55,
+    "aspect_ratio_fall": 1.15,
+    "torso_weight": 0.22,
+    "angular_velocity_weight": 0.12,
+    "vertical_velocity_weight": 0.34,
+    "center_drop_weight": 0.16,
+    "aspect_ratio_weight": 0.16
+  },
+  "features": {
+    "torso_angle_degrees": "0 means vertical; larger values mean more horizontal.",
+    "vertical_velocity": "Positive means the body center is moving downward in normalized image coordinates per second.",
+    "body_center_drop": "Increase in body center y compared with the initial baseline.",
+    "aspect_ratio": "Visible body bounding-box width divided by height."
+  }
+}

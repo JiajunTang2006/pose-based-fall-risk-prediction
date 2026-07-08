@@ -1,84 +1,227 @@
 # FallGuard — Native macOS Desktop App
 
-FallGuard 是一个完全独立的 macOS 桌面应用，使用 AI 驱动的跌倒检测技术，通过摄像头实时监测人体姿态，
-在跌倒发生时及时预警。
+FallGuard is a standalone macOS desktop application for AI-powered fall and pre-fall monitoring.
 
-## 为什么这样设计
+It uses a local camera to analyze human pose in real time and provides warnings when a potential fall-related state is detected.
 
-- 使用 HTML/CSS/JavaScript 做前端界面，接近真实软件产品。
-- 使用 Python 做本机后端，负责摄像头、YOLO 和跌倒预测。
-- 视频不会上传外网，只在本机 `127.0.0.1` 页面中显示。
-- **默认使用 pywebview 打开原生 macOS 桌面窗口**（不需要浏览器）。
-- **完全自包含，不依赖外部项目** —— 所有代码和模型都在本目录内。
-- 可以先用 `launch.command` 双击运行，后面再用 `build_app.sh` 打包成 `.app`。
+This app is part of the larger **Pose-Based Fall and Pre-Fall Prediction System** project.
 
-## 快速开始
+---
+
+## Overview
+
+FallGuard is designed as a local macOS prototype for testing and demonstrating a pose-based fall prediction system.
+
+The application combines:
+
+- A product-style frontend interface
+- A Python-based local backend
+- YOLO-based human pose estimation
+- Machine-learning-based Normal / Pre-fall / Fall prediction
+- Real-time camera monitoring
+- Local-only video processing
+
+The goal of this app is not only to detect falls after they happen, but also to support early warning through pre-fall prediction.
+
+---
+
+## Design Overview
+
+- The frontend UI is built with **HTML, CSS, and JavaScript**.
+- The backend is built with **Python**.
+- The backend handles camera input, pose estimation, feature extraction, and fall prediction.
+- Video data is processed locally and is not uploaded to external servers.
+- The local interface runs through `127.0.0.1`.
+- The app uses `pywebview` by default to open a native macOS desktop window.
+- The app can be launched using `launch.command`.
+- The app can later be packaged into a `.app` bundle using `build_app.sh`.
+
+---
+
+## Quick Start
+
+### 1. Enter the application directory
 
 ```bash
-# 1. 进入应用目录
-cd apps/macos
+cd app/macos
+```
 
-# 2. 创建虚拟环境并安装
+### 2. Create a virtual environment
+
+```bash
 python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e "."
+```
 
-# 3. 启动桌面应用
+### 3. Activate the virtual environment
+
+```bash
+source .venv/bin/activate
+```
+
+### 4. Install dependencies
+
+```bash
+pip install -e "."
+```
+
+### 5. Launch the desktop app
+
+```bash
 ./launch.command
 ```
 
-或者在 Finder 里双击 `launch.command`，会打开一个**原生 macOS 桌面窗口**。
+You can also double-click `launch.command` in Finder to open the native macOS desktop window.
 
-## 启动选项
+---
 
-| 命令 | 效果 |
-|------|------|
-| `python -m fall_prediction_desktop` | **默认** — 原生桌面窗口 |
-| `python -m fall_prediction_desktop --menubar` | 以菜单栏应用运行 |
-| `python -m fall_prediction_desktop --connect http://127.0.0.1:8765/` | 连接到已运行的本地监控服务 |
-| `python -m fall_prediction --source video.mp4 --pose-backend yolo --predictor ml --output-video annotated.mp4` | 命令行处理视频/图片序列 |
+## Launch Options
 
-## 目录结构
+| Command | Description |
+|---|---|
+| `python -m fall_prediction_desktop` | Default mode: native desktop window |
+| `python -m fall_prediction_desktop --menubar` | Run as a macOS menu bar app |
+| `python -m fall_prediction_desktop --connect http://127.0.0.1:8765/` | Connect to an existing local monitoring service |
+| `python -m fall_prediction --source video.mp4 --pose-backend yolo --predictor ml --output-video annotated.mp4` | Process a video or image sequence from the command line |
 
-```
+---
+
+## Directory Structure
+
+```text
 macos/
 ├── src/
-│   ├── fall_prediction_desktop/   # 桌面应用（窗口、服务器）
-│   └── fall_prediction/           # AI 核心（姿态识别、跌倒预测）
-├── web/                           # 前端 UI（HTML/CSS/JS）
-├── models/                        # AI 模型文件
-├── assets/                        # 图标和应用资源
-├── configs/                       # 配置文件
-├── launch.command                 # 双击启动
-├── build_app.sh                   # 打包 .app
-└── pyproject.toml                 # 依赖配置
+│   ├── fall_prediction_desktop/   # Desktop app: window and local server
+│   └── fall_prediction/           # AI core: pose estimation and fall prediction
+├── web/                           # Frontend UI: HTML/CSS/JS
+├── models/                        # Model files used by the app
+├── assets/                        # Icons and app resources
+├── configs/                       # Configuration files
+├── scripts/                       # Utility scripts
+├── tests/                         # Test files
+├── launch.command                 # Double-click launcher
+├── build_app.sh                   # Build script for .app packaging
+├── FallGuard.spec                 # PyInstaller specification file
+├── Info.plist                     # macOS app metadata
+├── entitlements.plist             # macOS app permissions
+├── profiles.json                  # App profile configuration
+├── pyproject.toml                 # Python dependencies and project configuration
+└── README.md                      # This file
 ```
 
-## App 图标
+---
 
-把设计好的图标保存为 `assets/FallGuard.png`（建议 `1024x1024` PNG）。
+## Current Features
 
-pywebview 模式下会自动读取这个 PNG 作为窗口图标；打包 `.app` 时，`build_app.sh` 会生成并使用 `FallGuard.icns`。
+- Product-style dashboard interface
+- Native macOS desktop window through `pywebview`
+- Real-time camera preview
+- YOLO-based human pose estimation
+- Machine-learning-based state prediction
+- Three-state prediction:
+  - `Normal`
+  - `Pre-fall`
+  - `Fall`
+- Skeleton visualization
+- Current state display
+- Risk score display
+- Event log
+- FPS display
+- Local-only video processing
 
-## 打包成 .app
+---
+
+## Model Usage
+
+The app uses pose-based machine learning models for fall and pre-fall prediction.
+
+Model files are stored in:
+
+```text
+models/
+```
+
+The current prototype is designed around a pose-based prediction pipeline:
+
+```text
+Camera / Video Input
+        ↓
+Pose Estimation
+        ↓
+Feature Extraction
+        ↓
+Sliding-Window Prediction
+        ↓
+Normal / Pre-fall / Fall State Output
+        ↓
+Warning and Visualization
+```
+
+---
+
+## App Icon
+
+Save the designed app icon as:
+
+```text
+assets/FallGuard.png
+```
+
+A `1024x1024` PNG file is recommended.
+
+In `pywebview` mode, the app can use this PNG file as the window icon.
+
+When packaging the app, `build_app.sh` can generate and use:
+
+```text
+FallGuard.icns
+```
+
+---
+
+## Packaging as a `.app`
+
+To package the app:
 
 ```bash
 ./build_app.sh
 ```
 
-构建结果在 `dist/FallGuard.app`，可以像普通 macOS 应用一样双击打开、拖入 Applications 文件夹。
+The packaged app will be generated at:
 
-## 当前功能
+```text
+dist/FallGuard.app
+```
 
-- Web Dashboard 风格界面，接近真实产品页面。
-- 默认使用 YOLO 姿态识别 + 机器学习跌倒预测模型。
-- 实时显示摄像头画面、骨架点、当前状态、风险分数、事件记录和帧率。
+It can be opened like a normal macOS application or moved into the Applications folder.
 
-第一次启动摄像头时，macOS 可能会询问是否允许使用摄像头，请选择允许。
+At this stage, the packaged app is an unsigned local prototype for testing and demonstration. It is not intended for App Store distribution.
 
-如果摄像头打不开：
+---
 
-- 在“系统设置 > 隐私与安全性 > 摄像头”中允许 FallGuard；如果用 `launch.command` 启动，也请允许 Terminal 或 Python。
-- 关闭 FaceTime、Zoom、浏览器会议等可能正在占用摄像头的软件。
-- 使用打包版本时，请打开 `dist/FallGuard.app`，不要直接运行 `dist/FallGuard/FallGuard` 里的内部可执行文件。
+## Camera Permission
 
+When the app is launched for the first time, macOS may ask for camera permission.
+
+Please allow camera access.
+
+If the camera cannot be opened, check the following:
+
+- Go to **System Settings > Privacy & Security > Camera** and allow access for FallGuard.
+- If you launch the app with `launch.command`, also allow access for Terminal or Python.
+- Close other apps that may be using the camera, such as FaceTime, Zoom, or browser-based meeting tools.
+- When using the packaged version, open `dist/FallGuard.app` directly instead of running the internal executable inside the app bundle.
+
+---
+
+## Notes
+
+This application is currently a local research prototype. And the application is still developing.
+
+It is designed for:
+
+- Testing
+- Demonstration
+- Real-time interaction
+- Further development of the pose-based fall and pre-fall prediction system
+
+The app is not currently intended for clinical use or App Store distribution.

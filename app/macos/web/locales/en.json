@@ -1,0 +1,260 @@
+{
+  "common": {
+    "na": "--",
+    "english": "English",
+    "chinese": "中文",
+    "percent": "%"
+  },
+  "camera": {
+    "emptyState": "No camera feed\n\nClick Start Monitoring to begin live detection"
+  },
+  "brand": {
+    "name": "FallGuard",
+    "tagline": "AI-powered fall detection"
+  },
+  "window": {
+    "title": "FallGuard — Smart Safety"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "toggleSidebar": "Toggle Sidebar"
+  },
+  "buttons": {
+    "startMonitoring": "Start Monitoring",
+    "importMedia": "Import Media",
+    "stop": "Stop",
+    "repairCamera": "Repair Camera Access",
+    "repairing": "Repairing..."
+  },
+  "topbar": {
+    "cameraReady": "Camera Ready",
+    "idle": "Idle"
+  },
+  "monitoring": {
+    "monitoring": "Monitoring",
+    "starting": "Starting",
+    "processing": "Processing",
+    "idle": "Idle",
+    "disconnected": "Disconnected",
+    "cameraConnected": "Camera Connected",
+    "cameraReady": "Camera Ready",
+    "runningNormally": "System is running normally."
+  },
+  "monitor": {
+    "title": "Live Monitor",
+    "placeholder": "No camera feed",
+    "placeholderSub": "Click Start Monitoring to begin live detection",
+    "fps": "FPS:",
+    "resolution": "Resolution:",
+    "rec": "REC",
+    "liveFeed": "Live monitor feed",
+    "fpsLabel": "FPS",
+    "resolutionLabel": "Resolution"
+  },
+  "status": {
+    "ready": "Ready",
+    "readyDetail": "System initialized and ready to monitor.",
+    "connected": "Connected",
+    "active": "Active",
+    "loading": "Loading",
+    "waiting": "Waiting",
+    "good": "Good",
+    "needsBetterView": "Needs Better View",
+    "checkSetup": "Check Setup",
+    "checking": "Checking",
+    "camera": "Camera",
+    "aiModel": "AI Model",
+    "systemWaiting": "System is waiting to start.",
+    "systemStatus": "System Status",
+    "poseDetection": "Pose Detection",
+    "processingState": "Processing State",
+    "idle": "Idle",
+    "monitoring": "Monitoring",
+    "warning": "Warning",
+    "danger": "Danger"
+  },
+  "risk": {
+    "title": "Risk Prediction",
+    "chartLabel": "Risk Score Over Time",
+    "detailDefault": "Start monitoring to calculate live risk.",
+    "lowRisk": "Low Risk",
+    "mediumRisk": "Medium Risk",
+    "highRisk": "High Risk",
+    "levelLow": "Low",
+    "levelMedium": "Medium",
+    "levelHigh": "High",
+    "badgeNormal": "Normal",
+    "badgeWatch": "Watch",
+    "badgeTakeCare": "Take Care",
+    "assessmentStatus": "Assessment Status",
+    "statusNormal": "Normal",
+    "statusPrefall": "Pre-fall Risk",
+    "statusFall": "Fall Detected",
+    "statusUnknown": "No Person",
+    "riskLevel": "Risk Level",
+    "confidence": "Confidence",
+    "environment": "Environment",
+    "riskScorePrefix": "Risk Score:",
+    "currentRisk": "Current Risk",
+    "trendTitle": "Risk Trend"
+  },
+  "chart": {
+    "subtitle": "Last 60 seconds"
+  },
+  "activity": {
+    "title": "Recent Events",
+    "empty": "No events yet — start monitoring to begin.",
+    "noActivity": "No activity yet.",
+    "monitoringStarted": "Monitoring started",
+    "monitoringStopped": "Monitoring stopped",
+    "monitoringError": "Monitoring error",
+    "fallbackTitle": "Activity",
+    "fallHistory": "Fall History",
+    "noFallHistory": "No falls recorded for this profile."
+  },
+  "media": {
+    "importing": "Importing...",
+    "processing": "Processing...",
+    "importMedia": "Import Media",
+    "uploading": "Uploading",
+    "importingMedia": "Importing Media",
+    "processingMedia": "Processing Media",
+    "importFailed": "Import Failed",
+    "preparing": "Preparing the selected files.",
+    "working": "Working on the imported media.",
+    "mp4Ready": "MP4 Ready",
+    "completeDetail": "{name} is complete. Saved as {output}.",
+    "selectFiles": "Import Media",
+    "selectFolder": "Import Photo Folder",
+    "fileFilter": "Media (*.mp4 *.mov *.m4v *.avi *.mkv *.webm *.png *.jpg *.jpeg *.bmp *.tiff *.heic *.heif);;All (*)"
+  },
+  "errors": {
+    "cameraRepairFailed": "Camera repair failed.",
+    "cameraAccessReset": "Camera access was reset. Quit and reopen FallGuard, then allow camera access.",
+    "mediaImportFailed": "Media import failed."
+  },
+  "profile": {
+    "defaultName": "Default"
+  },
+  "settings": {
+    "pageTitle": "FallGuard Settings",
+    "title": "Settings",
+    "general": "General",
+    "language": "Language",
+    "languageDesc": "Choose the display language",
+    "theme": "Theme",
+    "themeDesc": "Select the color theme",
+    "themeSystem": "System",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "detection": "Detection",
+    "sensitivity": "Sensitivity",
+    "sensitivityDesc": "Fall detection sensitivity level",
+    "sensitivityLow": "Low",
+    "sensitivityMedium": "Medium",
+    "sensitivityHigh": "High",
+    "profiles": "Profiles",
+    "profilesDesc": "Manage monitored person profiles. Each profile has its own fall event history.",
+    "addProfile": "+ Add",
+    "addProfileBtn": "Add Profile",
+    "addProfilePlaceholder": "Add profile name...",
+    "profileNamePlaceholder": "Profile name...",
+    "noProfiles": "No profiles",
+    "activeBadge": "✓ Active",
+    "deleteProfile": "Delete",
+    "about": "About",
+    "aboutDesc": "AI-powered fall detection system.\nReal-time camera monitoring with pose estimation\nand machine learning risk prediction.",
+    "searchPlaceholder": "Search settings",
+    "versionLabel": "Version",
+    "alerts": "Alerts",
+    "alertsDesc": "Choose how FallGuard notifies you about risks.",
+    "dataManagement": "Data Management",
+    "dataManagementDesc": "Export logs, clear history, and manage datasets.",
+    "thresholdSettings": "Threshold Settings",
+    "thresholdSettingsDesc": "Risk thresholds are provided by the backend predictor.",
+    "modelConfiguration": "Model Configuration",
+    "modelConfigurationDesc": "Current ML model and pose detector settings.",
+    "soundAlert": "Sound Alert",
+    "soundAlertDesc": "Play a sound when risk becomes high.",
+    "popupAlert": "Popup Alert",
+    "popupAlertDesc": "Show a desktop notification for critical events.",
+    "emailNotification": "Email / Notification",
+    "emailNotificationDesc": "Reserved for future alert delivery integrations.",
+    "exportLogs": "Export Logs",
+    "exportLogsDesc": "Export monitoring events and media analysis records.",
+    "clearHistory": "Clear History",
+    "clearHistoryDesc": "Remove local event history for demo cleanup.",
+    "datasetManagement": "Dataset Management",
+    "datasetManagementDesc": "Manage imported photo and video analysis data.",
+    "startOnBoot": "Start on System Boot",
+    "startOnBootDesc": "Launch FallGuard automatically when macOS starts.",
+    "minimizeToTray": "Minimize to System Tray",
+    "minimizeToTrayDesc": "Keep FallGuard available from the menu bar."
+  },
+  "widgets": {
+    "riskSubtitle": "Risk",
+    "riskScoreFmt": "Risk {risk}%",
+    "cameraPlaceholder": "No camera feed\n\nClick Start Monitoring to begin live detection"
+  },
+  "sidebar": {
+    "navDashboard": "Dashboard",
+    "profile": "Profile",
+    "settings": "Settings",
+    "aiFallDetection": "AI fall detection"
+  },
+  "backend": {
+    "Ready": "status.ready",
+    "Click Start Monitoring to begin.": "status.readyDetail",
+    "Setup Needed": "status.ready",
+    "Starting": "monitoring.starting",
+    "Loading camera and AI model.": "monitoring.starting",
+    "Loading Model": "monitoring.starting",
+    "Preparing YOLO pose detection and fall prediction.": "monitoring.starting",
+    "Monitoring Active": "monitoring.monitoring",
+    "System is running normally.": "monitoring.runningNormally",
+    "Good": "status.good",
+    "Waiting": "status.waiting",
+    "Checking": "status.checking",
+    "Needs Better View": "status.needsBetterView",
+    "Check Setup": "status.checkSetup",
+    "Monitoring": "monitoring.monitoring",
+    "Monitoring started": "activity.monitoringStarted",
+    "Monitoring stopped": "activity.monitoringStopped",
+    "Monitoring error": "activity.monitoringError",
+    "High Risk Detected": "risk.highRisk",
+    "Possible fall detected. Please check immediately.": "risk.highRisk",
+    "Medium Risk Detected": "risk.mediumRisk",
+    "Instability detected. Stay alert.": "risk.mediumRisk",
+    "Person Not Visible": "status.waiting",
+    "Please keep the full body in view.": "status.waiting",
+    "Importing Media": "media.importingMedia",
+    "Processing Media": "media.processingMedia",
+    "MP4 Ready": "media.mp4Ready",
+    "Import Failed": "media.importFailed",
+    "Analyzing frames and preparing the annotated MP4.": "media.processingMedia",
+    "Analyzing the media. This can take a few minutes.": "media.processingMedia",
+    "Finalizing the MP4 output.": "media.processingMedia",
+    "Choose a video, photo, or photo folder to analyze.": "media.importMedia"
+  },
+  "dashboard": {
+    "currentTime": "Current Time",
+    "detectionStatus": "Detection Status"
+  },
+  "metrics": {
+    "monitoringTime": "Monitoring Time",
+    "totalAlerts": "Total Alerts",
+    "highRiskEvents": "High Risk Events",
+    "avgRiskScore": "Avg. Risk Score",
+    "systemUptime": "System Uptime"
+  },
+  "alerts": {
+    "sound": "Sound alert",
+    "popup": "Popup alert",
+    "email": "Email / notification"
+  },
+  "sensitivity": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High"
+  }
+}

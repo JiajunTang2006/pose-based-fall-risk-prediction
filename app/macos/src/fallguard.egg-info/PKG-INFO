@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: fallguard
+Version: 0.2.0
+Summary: FallGuard — AI-powered fall detection desktop app for macOS.
+Requires-Python: <3.13,>=3.10
+Requires-Dist: opencv-python>=4.8
+Requires-Dist: numpy>=1.24
+Requires-Dist: scikit-learn>=1.3
+Requires-Dist: joblib>=1.3
+Requires-Dist: ultralytics>=8.4
+Requires-Dist: pywebview>=6.0
+Requires-Dist: rumps>=0.4
+Provides-Extra: mediapipe
+Requires-Dist: mediapipe==0.10.14; extra == "mediapipe"
+Provides-Extra: build
+Requires-Dist: pyinstaller>=6.0; extra == "build"

@@ -23,6 +23,7 @@ ICON_SIZES = {
 }
 
 CORNER_RADIUS = 224
+CONTENT_SCALE = 0.82
 
 
 def macos_icon_mask(size: int) -> Image.Image:
@@ -34,10 +35,23 @@ def macos_icon_mask(size: int) -> Image.Image:
 
 
 def prepare_icon(image: Image.Image, size: int) -> Image.Image:
-    icon = image.convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
-    alpha = icon.getchannel("A")
-    alpha = Image.composite(alpha, Image.new("L", (size, size), 0), macos_icon_mask(size))
-    icon.putalpha(alpha)
+    # Modern macOS icons include transparent optical padding around the
+    # rounded-square artwork.  Filling the complete bitmap makes the icon look
+    # noticeably larger than neighbouring apps in the Dock.
+    source = image.convert("RGBA")
+    alpha = source.getchannel("A")
+    alpha = Image.composite(
+        alpha,
+        Image.new("L", source.size, 0),
+        macos_icon_mask(source.width),
+    )
+    source.putalpha(alpha)
+
+    content_size = max(1, round(size * CONTENT_SCALE))
+    content = source.resize((content_size, content_size), Image.Resampling.LANCZOS)
+    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    offset = (size - content_size) // 2
+    icon.alpha_composite(content, (offset, offset))
     return icon
 
 

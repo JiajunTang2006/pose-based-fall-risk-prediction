@@ -17,13 +17,24 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QScrollArea, QFileDialog, QMessageBox, QMenu,
 )
 
-from .theme import ThemeManager, build_stylesheet, LIGHT, DARK
-from .i18n import get_i18n, t, t_dynamic, init_i18n
-from .widgets import (
-    RiskRing, ActivityRow, ConnectionPill,
-    MonitoringTag, VideoShell, Sidebar, Card,
-)
-from .settings_dialog import SettingsDialog
+# Relative imports work when running as `python -m fall_prediction_desktop`.
+# Absolute imports work inside a PyInstaller bundle where relative imports fail.
+try:
+    from .theme import ThemeManager, build_stylesheet, LIGHT, DARK
+    from .i18n import get_i18n, t, t_dynamic, init_i18n
+    from .widgets import (
+        RiskRing, ActivityRow, ConnectionPill,
+        MonitoringTag, VideoShell, Sidebar, Card,
+    )
+    from .settings_dialog import SettingsDialog
+except ImportError:
+    from fall_prediction_desktop.ui.theme import ThemeManager, build_stylesheet, LIGHT, DARK  # type: ignore[no-redef]
+    from fall_prediction_desktop.ui.i18n import get_i18n, t, t_dynamic, init_i18n  # type: ignore[no-redef]
+    from fall_prediction_desktop.ui.widgets import (  # type: ignore[no-redef]
+        RiskRing, ActivityRow, ConnectionPill,
+        MonitoringTag, VideoShell, Sidebar, Card,
+    )
+    from fall_prediction_desktop.ui.settings_dialog import SettingsDialog  # type: ignore[no-redef]
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
@@ -100,7 +111,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, monitor, media_processor, profile_manager,
                  settings, app_root: Path, locales_dir: Path,
-                 assets_dir: Path, app_version: str = "0.2.0") -> None:
+                 assets_dir: Path, app_version: str = "0.2.0", repos=None) -> None:
         super().__init__()
         self._monitor = monitor
         self._media_processor = media_processor
@@ -109,6 +120,7 @@ class MainWindow(QMainWindow):
         self._app_root = app_root
         self._app_version = app_version
         self._assets_dir = assets_dir
+        self._repos = repos
 
         init_i18n(locales_dir)
         self._theme = ThemeManager(settings.theme)
@@ -122,6 +134,8 @@ class MainWindow(QMainWindow):
         self._media_activities: list[dict] = []
         self._app_started_at = time.monotonic()
         self._monitor_started_at: float | None = None
+        self._force_quit = False
+        self._tray_icon = None
 
         self.setWindowTitle(t("window.title", "FallGuard — Smart Safety"))
         self.resize(1300, 880)
@@ -739,7 +753,13 @@ class MainWindow(QMainWindow):
         # Activities
         if isinstance(media_job, dict):
             self._track_media_activity(media_job)
-        self._render_activities(list(snap.get("activities", [])) + self._media_activities)
+        recent_events = snap.get("recentEvents")
+        activity_items = (
+            list(recent_events)
+            if isinstance(recent_events, list)
+            else list(snap.get("activities", []))
+        )
+        self._render_activities(activity_items + self._media_activities)
 
         # Video
         fps = float(snap.get("fps", 0) or 0)
@@ -803,7 +823,29 @@ class MainWindow(QMainWindow):
         )
 
         self._current_chart.update_data(self._risk_history, color)
-        self._trend_chart.update_data(self._risk_history, color)
+        trend_values = self._persistent_risk_history()
+        self._trend_chart.update_data(trend_values or self._risk_history, color)
+
+    def _persistent_risk_history(self) -> list[int]:
+        if self._repos is None:
+            return []
+        try:
+            session_id = getattr(self._monitor, "_session_id", None)
+            if session_id is None:
+                active = self._repos.sessions.get_active()
+                session_id = active["id"] if active else None
+            if session_id is None:
+                recent = self._repos.sessions.list_recent(1)
+                session_id = recent[0]["id"] if recent else None
+            if session_id is None:
+                return []
+            samples = self._repos.samples.get_latest_for_session(session_id, seconds=60.0)
+            return [
+                max(0, min(100, int(round(float(sample["risk_score"]) * 100))))
+                for sample in samples
+            ]
+        except Exception:
+            return []
 
     def _settings_sensitivity_label(self) -> str:
         levels = {
@@ -871,12 +913,18 @@ class MainWindow(QMainWindow):
         if self._monitor_started_at is not None:
             monitor_seconds = time.monotonic() - self._monitor_started_at
 
-        activities = list(snap.get("activities", []))
-        active = snap.get("activeProfile") if isinstance(snap.get("activeProfile"), dict) else {}
-        fall_events = list(active.get("fallEvents", [])) if isinstance(active, dict) else []
-        alert_count = len(fall_events) + sum(1 for item in activities if item.get("level") in {"warning", "danger"})
-        high_count = sum(1 for item in activities if item.get("level") == "danger")
-        high_count += sum(1 for item in fall_events if item.get("state") == "Fall")
+        recent_events = snap.get("recentEvents")
+        if isinstance(recent_events, list):
+            activities = recent_events
+            alert_count = len(activities)
+            high_count = sum(1 for item in activities if item.get("eventType") == "fall")
+        else:
+            activities = list(snap.get("activities", []))
+            active = snap.get("activeProfile") if isinstance(snap.get("activeProfile"), dict) else {}
+            fall_events = list(active.get("fallEvents", [])) if isinstance(active, dict) else []
+            alert_count = len(fall_events) + sum(1 for item in activities if item.get("level") in {"warning", "danger"})
+            high_count = sum(1 for item in activities if item.get("level") == "danger")
+            high_count += sum(1 for item in fall_events if item.get("state") == "Fall")
         avg = round(sum(self._risk_history) / len(self._risk_history)) if self._risk_history else risk
 
         self._metric_values["monitoringTime"].setText(self._format_duration(monitor_seconds))
@@ -915,9 +963,8 @@ class MainWindow(QMainWindow):
     # ── Actions ────────────────────────────────────────────────────
 
     def _start_monitoring(self) -> None:
-        import threading
         self._risk_history = []
-        threading.Thread(target=self._monitor.start, daemon=True).start()
+        self._monitor.start()
 
     def _stop_monitoring(self) -> None:
         self._monitor.stop()
@@ -990,6 +1037,8 @@ class MainWindow(QMainWindow):
             theme_manager=self._theme,
             app_version=self._app_version,
             parent=self,
+            repos=self._repos,
+            media_root=self._monitor.output_dir.parent,
         )
         dlg.theme_changed.connect(lambda m: self._on_theme_changed(self._theme.effective))
         dlg.language_changed.connect(lambda lang: self._on_language_changed(lang))
@@ -1050,8 +1099,26 @@ class MainWindow(QMainWindow):
         # Re-trigger theme update to fix stylesheet-based text
         self._on_theme_changed(self._theme.effective)
 
+    def request_quit(self) -> None:
+        """Close the application even when minimize-to-tray is enabled."""
+        self._force_quit = True
+        self.close()
+
     def closeEvent(self, event) -> None:
+        if (
+            self._app_settings.minimize_to_tray
+            and self._tray_icon is not None
+            and not self._force_quit
+        ):
+            event.ignore()
+            self.hide()
+            return
         self._monitor.stop()
         if self._status_timer: self._status_timer.stop()
         if self._frame_timer: self._frame_timer.stop()
+        try:
+            from fall_prediction_desktop.database.database import get_database
+            get_database().close_all()
+        except Exception:
+            pass
         super().closeEvent(event)

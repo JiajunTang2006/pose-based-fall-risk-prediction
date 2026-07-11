@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fall_prediction_desktop.runner import safe_filename
-from fall_prediction_desktop.web_app import MediaImportProcessor, ProfileManager
+from fall_prediction_desktop.web_app import (
+    CameraMonitor,
+    MediaImportProcessor,
+    MonitorSnapshot,
+    ProfileManager,
+)
 
 
 class ProfileManagerTests(unittest.TestCase):
@@ -35,7 +41,7 @@ class ProfileManagerTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            manager = ProfileManager(root)
+            manager = ProfileManager(root, data_dir=root)
             self.assertEqual(manager.active_id, profile_id)
             self.assertEqual(manager.active.name, "Alice")
             self.assertEqual(len(manager.active.fall_events), 1)
@@ -72,6 +78,18 @@ class MediaImportProcessorTests(unittest.TestCase):
             self.assertEqual(image_kind, "images")
             self.assertEqual([path.name for path in image_paths], ["frame_2.png", "frame_10.png"])
 
+    def test_snapshot_returns_a_copy_of_current_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("pathlib.Path.home", return_value=root):
+                processor = MediaImportProcessor(root)
+
+            snapshot = processor.snapshot()
+
+            self.assertIsInstance(snapshot, dict)
+            self.assertFalse(snapshot["running"])
+            self.assertEqual(snapshot["state"], "Idle")
+
     def test_rejects_mixed_video_and_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -85,6 +103,47 @@ class MediaImportProcessorTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 processor._detect_path_media_kind([video, image])
+
+
+class CameraMonitorTests(unittest.TestCase):
+    def _monitor(self) -> CameraMonitor:
+        monitor = CameraMonitor.__new__(CameraMonitor)
+        monitor._lock = threading.Lock()
+        monitor._stop_event = threading.Event()
+        monitor._worker = None
+        monitor._snapshot = MonitorSnapshot()
+        monitor._repos = None
+        monitor._debug_log = MagicMock()
+        return monitor
+
+    def test_snapshot_includes_persisted_recent_events(self) -> None:
+        monitor = self._monitor()
+        monitor._repos = MagicMock()
+        monitor._repos.events.list_recent.return_value = [{
+            "id": "event-1",
+            "event_type": "fall",
+            "started_at": "2026-07-10T09:00:00+00:00",
+            "peak_risk": 0.87,
+            "status": "closed",
+        }]
+
+        snapshot = monitor.snapshot()
+
+        self.assertEqual(snapshot["recentEvents"][0]["id"], "event-1")
+        self.assertEqual(snapshot["recentEvents"][0]["risk"], 87)
+        monitor._repos.events.list_recent.assert_called_once_with(12)
+
+    def test_stop_does_not_join_current_worker(self) -> None:
+        monitor = self._monitor()
+        worker = MagicMock()
+        worker.is_alive.return_value = True
+        monitor._worker = worker
+
+        with patch("threading.current_thread", return_value=worker):
+            monitor.stop()
+
+        self.assertTrue(monitor._stop_event.is_set())
+        worker.join.assert_not_called()
 
 
 class RunnerUtilityTests(unittest.TestCase):

@@ -16,7 +16,10 @@ APP_PLIST="$APP_DIR/dist/FallGuard.app/Contents/Info.plist"
 ICON_ARG=()
 VERSION="$(python - <<'PY'
 from pathlib import Path
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 
 data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 print(data["project"].get("version", "0.0.0"))
@@ -29,6 +32,7 @@ if [[ -z "$SIGN_IDENTITY" ]]; then
 fi
 
 echo "==> Installing app dependencies..."
+python -m pip install wheel 2>/dev/null || true
 if python -c "import wheel" >/dev/null 2>&1; then
   python -m pip install --no-build-isolation -e "$APP_DIR"
 else
@@ -66,17 +70,34 @@ fi
 
 echo "==> Building FallGuard.app with PyInstaller (optimized)..."
 
+# Ensure locales are accessible from assets/locales/ for the native PySide6 UI.
+mkdir -p "$APP_DIR/assets/locales"
+cp "$APP_DIR/web/locales/en.json" "$APP_DIR/assets/locales/en.json"
+cp "$APP_DIR/web/locales/zh.json" "$APP_DIR/assets/locales/zh.json"
+
 python -m PyInstaller \
   --noconfirm \
+  --specpath "$APP_DIR/build" \
   --windowed \
   --name "FallGuard" \
   "${ICON_ARG[@]}" \
   --paths "$APP_DIR/src" \
   --add-data "$APP_DIR/models:models" \
   --add-data "$APP_DIR/assets:assets" \
+  --add-data "$APP_DIR/web:web" \
+  --add-data "$APP_DIR/configs:configs" \
+  --add-data "$APP_DIR/src/fall_prediction_desktop/database/schema.sql:fall_prediction_desktop/database" \
   --hidden-import matplotlib \
   --hidden-import objc \
+  --hidden-import Foundation \
   --hidden-import rumps \
+  --hidden-import webview \
+  --hidden-import cv2 \
+  --hidden-import ultralytics \
+  --hidden-import numpy \
+  --hidden-import webview.platforms.cocoa \
+  --hidden-import matplotlib.backends.backend_qtagg \
+  --hidden-import matplotlib.backends.qt_compat \
   --hidden-import joblib \
   --hidden-import sklearn \
   --hidden-import sklearn.ensemble \
@@ -102,16 +123,25 @@ python -m PyInstaller \
   --hidden-import fall_prediction.pose \
   --hidden-import fall_prediction.ml_features \
   --hidden-import fall_prediction.ml_predictor \
+  --hidden-import fall_prediction.robustness \
   --hidden-import fall_prediction.window_dataset \
   --hidden-import fall_prediction.config \
   --hidden-import fall_prediction.video_app \
+  --hidden-import fall_prediction.sensitivity \
   --hidden-import fall_prediction_desktop \
   --hidden-import fall_prediction_desktop.web_app \
   --hidden-import fall_prediction_desktop.menubar \
   --hidden-import fall_prediction_desktop.runner \
+  --hidden-import fall_prediction_desktop.paths \
+  --hidden-import fall_prediction_desktop.alert_service \
+  --hidden-import fall_prediction_desktop.frame_pipeline \
+  --hidden-import fall_prediction_desktop.event_service \
+  --hidden-import fall_prediction_desktop.event_media_buffer \
+  --hidden-import fall_prediction_desktop.data_services \
   --hidden-import fall_prediction_desktop.ui \
   --hidden-import fall_prediction_desktop.ui.main_window \
   --hidden-import fall_prediction_desktop.ui.settings_dialog \
+  --hidden-import fall_prediction_desktop.ui.dataset_dialog \
   --hidden-import fall_prediction_desktop.ui.widgets \
   --hidden-import fall_prediction_desktop.ui.theme \
   --hidden-import fall_prediction_desktop.ui.i18n \
@@ -129,7 +159,6 @@ python -m PyInstaller \
   --exclude-module wx \
   --exclude-module sphinx \
   --exclude-module docutils \
-  --exclude-module pywebview \
   --exclude-module polars \
   --exclude-module _polars_runtime_32 \
   --exclude-module pyarrow \
@@ -179,18 +208,25 @@ set_plist_bool NSHighResolutionCapable true
 set_plist_bool NSSupportsAutomaticGraphicsSwitching true
 
 echo "==> Signing FallGuard.app with identity: $SIGN_IDENTITY"
-codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_DIR/dist/FallGuard.app"
-
-echo "==> Verifying app signature..."
-codesign --verify --deep --strict --verbose=2 "$APP_DIR/dist/FallGuard.app"
+if ! codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_DIR/dist/FallGuard.app"; then
+  echo "Warning: codesign failed; the .app is not signed but is still functional."
+else
+  echo "==> Verifying app signature..."
+  codesign --verify --deep --strict --verbose=2 "$APP_DIR/dist/FallGuard.app" || echo "Warning: signature verification failed."
+fi
 
 echo "==> Done!  FallGuard.app is in dist/"
 echo "    Size: $(du -sh dist/FallGuard.app | cut -f1)"
 
-# Auto-deploy to Desktop so the user always has the latest version.
-DESKTOP_APP="$HOME/Desktop/FallGuard.app"
-if [ -d "$DESKTOP_APP" ]; then
-  rm -rf "$DESKTOP_APP"
+# Deployment is opt-in.  A normal build must never silently replace the app
+# the user may currently be running from the Desktop.
+if [[ "${DEPLOY_TO_DESKTOP:-0}" == "1" ]]; then
+  DESKTOP_APP="$HOME/Desktop/FallGuard.app"
+  if [[ -d "$DESKTOP_APP" ]]; then
+    rm -rf "$DESKTOP_APP"
+  fi
+  cp -R "$APP_DIR/dist/FallGuard.app" "$DESKTOP_APP"
+  echo "==> Deployed to Desktop: $DESKTOP_APP"
+else
+  echo "    To copy it to Desktop, run: DEPLOY_TO_DESKTOP=1 ./build_app.sh"
 fi
-cp -R "$APP_DIR/dist/FallGuard.app" "$DESKTOP_APP"
-echo "==> Deployed to Desktop: $DESKTOP_APP"

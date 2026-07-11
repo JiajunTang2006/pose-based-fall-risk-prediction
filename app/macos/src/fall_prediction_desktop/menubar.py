@@ -12,15 +12,30 @@ import threading
 
 import rumps
 
-from .runner import ensure_repo_on_path, find_app_root
-from .web_app import (
-    CameraMonitor,
-    FallGuardServer,
-    MediaImportProcessor,
-    ProfileManager,
-    find_free_port,
-    load_settings,
-)
+# Relative imports work when running as `python -m fall_prediction_desktop`.
+# Absolute imports work inside a PyInstaller bundle where relative imports fail.
+try:
+    from .runner import ensure_repo_on_path, find_app_root
+    from .web_app import (
+        CameraMonitor,
+        FallGuardServer,
+        MediaImportProcessor,
+        ProfileManager,
+        find_free_port,
+        load_settings,
+    )
+    from .database.init_db import init_app_database
+except ImportError:
+    from fall_prediction_desktop.runner import ensure_repo_on_path, find_app_root  # type: ignore[no-redef]
+    from fall_prediction_desktop.web_app import (  # type: ignore[no-redef]
+        CameraMonitor,
+        FallGuardServer,
+        MediaImportProcessor,
+        ProfileManager,
+        find_free_port,
+        load_settings,
+    )
+    from fall_prediction_desktop.database.init_db import init_app_database  # type: ignore[no-redef]
 
 
 # ── status emoji ──────────────────────────────────────────────────────────
@@ -122,12 +137,20 @@ class FallGuardMenuBar(rumps.App):
 
     def _on_show_monitor(self, sender: rumps.MenuItem) -> None:
         self._ensure_server()
-        # Open a native pywebview window in a subprocess, connected to this server.
+        # Open a native pywebview window connected to this server.
+        # Inside a PyInstaller bundle, sys.executable is the bundled app;
+        # from source we use `python -m fall_prediction_desktop --connect`.
         import subprocess, sys
-        subprocess.Popen(
-            [sys.executable, "-m", "fall_prediction_desktop", "--connect", self._url],
-            start_new_session=True,
-        )
+        if getattr(sys, "frozen", False):
+            subprocess.Popen(
+                [sys.executable, "--connect", self._url],
+                start_new_session=True,
+            )
+        else:
+            subprocess.Popen(
+                [sys.executable, "-m", "fall_prediction_desktop", "--connect", self._url],
+                start_new_session=True,
+            )
 
     def _on_quit(self, sender: rumps.MenuItem) -> None:
         if self._monitor is not None:
@@ -168,8 +191,17 @@ class FallGuardMenuBar(rumps.App):
         assets_root = self.app_root / "assets"
         self._port = find_free_port(8765)
         settings = load_settings(self.app_root)
+        # Initialize database layer for session/event tracking (Tasks 1-4)
+        try:
+            repos = init_app_database(self.app_root)
+            # Wire DB repos to the monitor
+        except Exception as exc:
+            print(f"Database init failed (non-fatal): {exc}")
+            repos = None
         profile_manager = ProfileManager(self.app_root)
         self._monitor = CameraMonitor(self.app_root, settings)
+        if repos is not None:
+            self._monitor._repos = repos
         self._monitor.profile_manager = profile_manager
         media_processor = MediaImportProcessor(self.app_root, settings)
         self._server = FallGuardServer(

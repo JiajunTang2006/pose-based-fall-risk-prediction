@@ -16,14 +16,21 @@ dependencies = [
     "ultralytics>=8.4",
     "pywebview>=6.0",
     "rumps>=0.4",
+    "matplotlib>=3.8",
+    "pyobjc-framework-Cocoa>=11",
+    "pyobjc-framework-Quartz>=11",
+    "pyobjc-framework-WebKit>=11",
 ]
 
 [project.optional-dependencies]
 mediapipe = ["mediapipe==0.10.14"]
-build = ["pyinstaller>=6.0"]
+build = ["pyinstaller>=6.0", "wheel"]
 
 [project.scripts]
 fallguard = "fall_prediction_desktop.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"fall_prediction_desktop.database" = ["schema.sql"]

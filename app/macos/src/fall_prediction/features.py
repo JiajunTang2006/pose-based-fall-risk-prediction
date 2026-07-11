@@ -30,15 +30,47 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from .landmarks import (
+    LEFT_EAR,
+    LEFT_ELBOW,
+    LEFT_ANKLE,
     LEFT_HIP,
+    LEFT_KNEE,
     LEFT_SHOULDER,
+    LEFT_WRIST,
+    NOSE,
+    RIGHT_EAR,
+    RIGHT_ELBOW,
+    RIGHT_ANKLE,
     RIGHT_HIP,
+    RIGHT_KNEE,
     RIGHT_SHOULDER,
+    RIGHT_WRIST,
     Landmark,
     has_landmarks,
     mean_visibility,
     midpoint,
     visible_points,
+)
+
+
+UPPER_BODY_LANDMARKS = (
+    NOSE,
+    LEFT_EAR,
+    RIGHT_EAR,
+    LEFT_SHOULDER,
+    RIGHT_SHOULDER,
+    LEFT_ELBOW,
+    RIGHT_ELBOW,
+    LEFT_WRIST,
+    RIGHT_WRIST,
+)
+LOWER_BODY_LANDMARKS = (
+    LEFT_HIP,
+    RIGHT_HIP,
+    LEFT_KNEE,
+    RIGHT_KNEE,
+    LEFT_ANKLE,
+    RIGHT_ANKLE,
 )
 
 
@@ -73,6 +105,20 @@ class PoseFeatures:
     body_width: float = 0.0              # 身体宽度
     body_height: float = 0.0             # 身体高度
     visibility_mean: float = 0.0         # 平均可见度
+    torso_signed_angle_deg: float = 0.0  # 带方向的躯干角，供相机站立校准使用
+    torso_valid: bool = False             # 双肩和双髋是否都可靠
+    center_valid: bool = False            # 身体中心/下降特征是否可靠
+    bbox_valid: bool = False              # 可见关键点包围盒是否可靠
+    shoulder_center_y: float = 0.0        # 双肩中心的垂直位置
+    shoulder_center_delta: float = 0.0    # 双肩中心逐帧位移
+    shoulder_vertical_velocity: float = 0.0
+    shoulder_line_angle_deg: float = 0.0  # 肩线相对水平线的带方向角度
+    shoulder_line_angular_velocity: float = 0.0
+    upper_body_width: float = 0.0
+    upper_body_height: float = 0.0
+    upper_body_aspect_ratio: float = 0.0
+    upper_body_valid: bool = False
+    upper_body_visibility_mean: float = 0.0
 
 
 class FeatureExtractor:
@@ -98,6 +144,9 @@ class FeatureExtractor:
         self._previous_center_y: float | None = None       # 上一帧的身体中心 Y
         self._previous_torso_angle: float | None = None    # 上一帧的躯干角度
         self._previous_timestamp: float | None = None      # 上一帧的时间戳
+        self._previous_shoulder_center_y: float | None = None
+        self._previous_shoulder_angle: float | None = None
+        self._previous_shoulder_timestamp: float | None = None
 
     def extract(
         self,
@@ -124,25 +173,74 @@ class FeatureExtractor:
 
         assert landmarks is not None  # 到这里 landmarks 一定不为 None
 
-        # ---- 计算身体中心 ----
-        # 肩膀中心 = 左肩和右肩的中点
-        shoulder_mid = midpoint(landmarks[LEFT_SHOULDER], landmarks[RIGHT_SHOULDER])
-        # 髋部中心 = 左髋和右髋的中点
-        hip_mid = midpoint(landmarks[LEFT_HIP], landmarks[RIGHT_HIP])
-        # 身体中心 Y = 肩膀中心和髋部中心的 Y 坐标平均值
-        body_center_y = (shoulder_mid.y + hip_mid.y) / 2.0
+        shoulders_valid = self._points_visible(landmarks, (LEFT_SHOULDER, RIGHT_SHOULDER))
+        hips_valid = self._points_visible(landmarks, (LEFT_HIP, RIGHT_HIP))
+        torso_valid = shoulders_valid and hips_valid
+        center_valid = torso_valid
 
-        # ---- 计算躯干角度 ----
-        # 想象从髋部中心到肩膀中心画一条线，这条线偏离垂直方向的角度
-        # 笔直站立 → 角度接近 0°；平躺 → 角度接近 90°
-        torso_angle = self._torso_angle_from_vertical(shoulder_mid, hip_mid)
+        body_center_y = 0.0
+        torso_angle = 0.0
+        torso_signed_angle = 0.0
+        shoulder_center_y = 0.0
+        shoulder_center_delta = 0.0
+        shoulder_vertical_velocity = 0.0
+        shoulder_line_angle = 0.0
+        shoulder_line_angular_velocity = 0.0
+        if torso_valid:
+            shoulder_mid = midpoint(landmarks[LEFT_SHOULDER], landmarks[RIGHT_SHOULDER])
+            hip_mid = midpoint(landmarks[LEFT_HIP], landmarks[RIGHT_HIP])
+            body_center_y = (shoulder_mid.y + hip_mid.y) / 2.0
+            torso_signed_angle = self._signed_torso_angle_from_vertical(shoulder_mid, hip_mid)
+            torso_angle = abs(torso_signed_angle)
+
+        if shoulders_valid:
+            left_shoulder = landmarks[LEFT_SHOULDER]
+            right_shoulder = landmarks[RIGHT_SHOULDER]
+            shoulder_mid = midpoint(left_shoulder, right_shoulder)
+            shoulder_center_y = shoulder_mid.y
+            shoulder_line_angle = math.degrees(
+                math.atan2(
+                    right_shoulder.y - left_shoulder.y,
+                    right_shoulder.x - left_shoulder.x,
+                )
+            )
+            if self._previous_shoulder_center_y is not None and self._previous_shoulder_timestamp is not None:
+                shoulder_dt = max(timestamp - self._previous_shoulder_timestamp, 1e-6)
+                shoulder_center_delta = shoulder_center_y - self._previous_shoulder_center_y
+                shoulder_vertical_velocity = shoulder_center_delta / shoulder_dt
+                if self._previous_shoulder_angle is not None:
+                    shoulder_line_angular_velocity = (
+                        shoulder_line_angle - self._previous_shoulder_angle
+                    ) / shoulder_dt
+            self._previous_shoulder_center_y = shoulder_center_y
+            self._previous_shoulder_angle = shoulder_line_angle
+            self._previous_shoulder_timestamp = timestamp
 
         # ---- 计算身体包围盒（最小外接矩形）----
         # 宽高比 = 宽度/高度，站立时窄高（值小），倒下时矮宽（值大）
         body_width, body_height, aspect_ratio = self._body_box(landmarks)
+        visible_lower_body_points = sum(
+            landmarks[index].visibility >= self.min_visibility
+            for index in LOWER_BODY_LANDMARKS
+        )
+        bbox_valid = (
+            body_width > 1e-6
+            and body_height > 1e-6
+            and visible_lower_body_points >= 2
+        )
+        upper_body_width, upper_body_height, upper_body_aspect_ratio = self._body_box(
+            landmarks,
+            indices=UPPER_BODY_LANDMARKS,
+        )
+        upper_body_valid = (
+            shoulders_valid
+            and upper_body_width > 1e-6
+            and upper_body_height > 1e-6
+        )
 
         # ---- 计算关键点平均可见度 ----
         visibility = mean_visibility(landmarks)
+        upper_body_visibility = mean_visibility(landmarks, indices=UPPER_BODY_LANDMARKS)
 
         # ---- 计算速度（需要和上一帧对比）----
         dt = self._delta_time(timestamp)  # 两帧之间的时间间隔
@@ -150,20 +248,26 @@ class FeatureExtractor:
         vertical_velocity = 0.0   # 垂直速度
         angular_velocity = 0.0    # 角速度
 
-        if self._previous_center_y is not None:
+        if center_valid and self._previous_center_y is not None:
             # 身体中心的变化量（正数 = 身体在画面中向下移动）
             center_delta = body_center_y - self._previous_center_y
             # 垂直速度 = 变化量 / 时间间隔
             vertical_velocity = center_delta / dt
 
-        if self._previous_torso_angle is not None:
+        if torso_valid and self._previous_torso_angle is not None:
             # 角速度 = 角度变化量 / 时间间隔（度/秒）
             angular_velocity = (torso_angle - self._previous_torso_angle) / dt
 
         # ---- 保存当前帧信息，供下一帧计算速度时使用 ----
-        self._previous_center_y = body_center_y
-        self._previous_torso_angle = torso_angle
-        self._previous_timestamp = timestamp
+        if center_valid:
+            self._previous_center_y = body_center_y
+        if torso_valid:
+            self._previous_torso_angle = torso_angle
+        # Do not advance the motion clock on a bbox-only/fully missing frame.
+        # When torso points return, velocity is then divided by the whole gap
+        # duration instead of being exaggerated as a one-frame jump.
+        if center_valid or torso_valid:
+            self._previous_timestamp = timestamp
 
         return PoseFeatures(
             frame_index=frame_index,
@@ -178,6 +282,20 @@ class FeatureExtractor:
             body_width=body_width,
             body_height=body_height,
             visibility_mean=visibility,
+            torso_signed_angle_deg=torso_signed_angle,
+            torso_valid=torso_valid,
+            center_valid=center_valid,
+            bbox_valid=bbox_valid,
+            shoulder_center_y=shoulder_center_y,
+            shoulder_center_delta=shoulder_center_delta,
+            shoulder_vertical_velocity=shoulder_vertical_velocity,
+            shoulder_line_angle_deg=shoulder_line_angle,
+            shoulder_line_angular_velocity=shoulder_line_angular_velocity,
+            upper_body_width=upper_body_width,
+            upper_body_height=upper_body_height,
+            upper_body_aspect_ratio=upper_body_aspect_ratio,
+            upper_body_valid=upper_body_valid,
+            upper_body_visibility_mean=upper_body_visibility,
         )
 
     def reset(self) -> None:
@@ -190,6 +308,9 @@ class FeatureExtractor:
         self._previous_center_y = None
         self._previous_torso_angle = None
         self._previous_timestamp = None
+        self._previous_shoulder_center_y = None
+        self._previous_shoulder_angle = None
+        self._previous_shoulder_timestamp = None
 
     def _delta_time(self, timestamp: float) -> float:
         """
@@ -202,7 +323,11 @@ class FeatureExtractor:
             return 1.0 / 30.0  # 默认假设 30fps
         return max(timestamp - self._previous_timestamp, 1e-6)  # 1e-6 是防止除零的安全值
 
-    def _body_box(self, landmarks: Sequence[Landmark]) -> tuple[float, float, float]:
+    def _body_box(
+        self,
+        landmarks: Sequence[Landmark],
+        indices: Sequence[int] | None = None,
+    ) -> tuple[float, float, float]:
         """
         计算人体可见关键点的包围盒（bounding box）。
 
@@ -212,7 +337,15 @@ class FeatureExtractor:
             站立时宽高比 < 1（窄高），跌倒时宽高比接近或 > 1（矮宽）
         """
         # 只使用可见度足够的点
-        points = visible_points(landmarks, self.min_visibility)
+        points = (
+            visible_points(landmarks, self.min_visibility)
+            if indices is None
+            else [
+                landmarks[index]
+                for index in indices
+                if landmarks[index].visibility >= self.min_visibility
+            ]
+        )
         if len(points) < 2:
             return 0.0, 0.0, 0.0
 
@@ -227,6 +360,9 @@ class FeatureExtractor:
         # 宽高比，分母加 1e-6 防止除零
         aspect_ratio = width / max(height, 1e-6)
         return width, height, aspect_ratio
+
+    def _points_visible(self, landmarks: Sequence[Landmark], indices: Sequence[int]) -> bool:
+        return all(landmarks[index].visibility >= self.min_visibility for index in indices)
 
     @staticmethod
     def _torso_angle_from_vertical(shoulder_mid: Landmark, hip_mid: Landmark) -> float:
@@ -247,3 +383,10 @@ class FeatureExtractor:
         dy = shoulder_mid.y - hip_mid.y  # 垂直偏移
         # atan2: 根据 dx 和 dy 计算角度，degrees: 弧度转度数
         return math.degrees(math.atan2(abs(dx), max(abs(dy), 1e-6)))
+
+    @staticmethod
+    def _signed_torso_angle_from_vertical(shoulder_mid: Landmark, hip_mid: Landmark) -> float:
+        """Signed tilt around the image vertical; standing is approximately 0°."""
+        dx = shoulder_mid.x - hip_mid.x
+        upward_dy = hip_mid.y - shoulder_mid.y
+        return math.degrees(math.atan2(dx, max(upward_dy, 1e-6)))

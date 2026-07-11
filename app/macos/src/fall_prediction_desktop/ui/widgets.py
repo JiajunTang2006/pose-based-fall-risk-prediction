@@ -14,7 +14,12 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from .i18n import t
+# Relative imports work when running as `python -m fall_prediction_desktop`.
+# Absolute imports work inside a PyInstaller bundle where relative imports fail.
+try:
+    from .i18n import t
+except ImportError:
+    from fall_prediction_desktop.ui.i18n import t  # type: ignore[no-redef]
 
 # 8px grid
 S4, S8, S12, S16, S20, S24, S28, S32 = 4, 8, 12, 16, 20, 24, 28, 32

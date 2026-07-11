@@ -30,10 +30,11 @@ import csv
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 from .camera import open_camera_capture
 from .config import load_predictor_config
+from .lowlight import enhance_low_light
 from .pose import MediaPipePoseEstimator, YOLOPoseEstimator, draw_person_box
 from .predictor import FallPredictor, PredictorConfig
 from .sensitivity import SENSITIVITY_LEVELS, ml_config_for_sensitivity, predictor_config_for_sensitivity
@@ -86,8 +87,11 @@ def process_video(
     use_accel: bool | None = None,
     use_temporal_fall_validation: bool = True,
     fall_validator_settings: Mapping[str, float | int] | None = None,
+    temporal_sensitivity: str = "high",
     image_sequence_fps: float = 30.0,
     predictor_config: PredictorConfig | None = None,
+    on_prediction: Callable[[object, int, float, object], None] | None = None,
+    enhance_low_light_frames: bool = True,
 ) -> None:
     """
     处理视频或摄像头流，进行跌倒预测。
@@ -105,6 +109,9 @@ def process_video(
         predictor_type: "rule" 使用原规则系统，"ml" 使用训练好的机器学习模型
         classifier_model_path: 机器学习分类器 joblib 模型路径
         image_sequence_fps: 当 source 是图片目录时，假设这组图片的帧率是多少
+        enhance_low_light_frames: 是否在姿态估计前对偏暗的帧做 CLAHE 提亮。
+                      默认开启；只有画面平均亮度低于阈值时才实际增强，
+                      够亮的帧原样通过，不额外耗时。
     """
     import cv2
 
@@ -163,6 +170,7 @@ def process_video(
             use_accel=use_accel,
             use_temporal_fall_validation=use_temporal_fall_validation,
             fall_validator_settings=fall_validator_settings,
+            temporal_sensitivity=temporal_sensitivity,
         )  # 跌倒预测器
 
         frame_index = 0
@@ -175,11 +183,19 @@ def process_video(
             # 计算当前时间戳（秒）
             timestamp = frame_index / fps
 
+            # ---- 低光增强：偏暗的帧先提亮再进姿态估计 ----
+            # 原地替换 frame，让后续的检测、标注视频、事件证据片段
+            # 都基于增强后的画面。够亮的帧会原样返回，几乎不耗时。
+            if enhance_low_light_frames:
+                frame = enhance_low_light(frame)
+
             # ---- 第一步：姿态估计后端提取关键点 ----
             landmarks = estimator.process_bgr(frame, timestamp_ms=int(timestamp * 1000))
 
             # ---- 第二步：跌倒预测 ----
             prediction = predictor.predict(landmarks, frame_index, timestamp)
+            if on_prediction is not None:
+                on_prediction(prediction, frame_index, timestamp, frame)
 
             # ---- 第三步：绘制可视化 ----
             person_bbox = draw_person_box(frame, landmarks)
@@ -329,6 +345,7 @@ def create_predictor(
     use_accel: bool | None = None,
     use_temporal_fall_validation: bool = True,
     fall_validator_settings: Mapping[str, float | int] | None = None,
+    temporal_sensitivity: str = "high",
 ):
     """Create the requested prediction backend."""
     if predictor_type == "rule":
@@ -353,6 +370,7 @@ def create_predictor(
             use_accel=use_accel,
             use_temporal_fall_validation=use_temporal_fall_validation,
             fall_validator_settings=fall_validator_settings,
+            temporal_sensitivity=temporal_sensitivity,
         )
     raise ValueError(f"Unknown predictor type: {predictor_type}")
 
@@ -653,6 +671,7 @@ def main() -> None:
         use_accel=args.use_accel if args.use_accel else None,
         use_temporal_fall_validation=not args.disable_temporal_fall_validation,
         fall_validator_settings=fall_validator_settings,
+        temporal_sensitivity=args.sensitivity or "high",
         image_sequence_fps=args.image_fps,
         predictor_config=predictor_config,
     )

@@ -9,13 +9,14 @@ from typing import Callable
 
 
 LogCallback = Callable[[str], None]
+PredictionCallback = Callable[[object, int, float, object], None]
 
 
 @dataclass(frozen=True)
 class PredictionJob:
     source: str
     output_dir: Path
-    pose_backend: str = "mediapipe"
+    pose_backend: str = "yolo"
     predictor: str = "rule"
     sensitivity: str | None = None
     config_path: Path | None = None
@@ -65,13 +66,22 @@ def find_repo_root() -> Path:
 
 
 def ensure_repo_on_path(app_root: Path) -> None:
-    """Ensure the local ``src/`` directory is on ``sys.path``."""
+    """Ensure the local ``src/`` directory is on ``sys.path``.
+
+    Inside a PyInstaller bundle the ``src/`` directory does not exist;
+    the import system resolves modules from the bundled archive instead,
+    so this is a harmless no-op in that environment.
+    """
     src_dir = str(app_root / "src")
-    if src_dir not in sys.path:
+    if src_dir not in sys.path and Path(src_dir).is_dir():
         sys.path.insert(0, src_dir)
 
 
-def run_prediction_job(job: PredictionJob, log: LogCallback | None = None) -> RunResult:
+def run_prediction_job(
+    job: PredictionJob,
+    log: LogCallback | None = None,
+    on_prediction: PredictionCallback | None = None,
+) -> RunResult:
     app_root = find_app_root()
     ensure_repo_on_path(app_root)
 
@@ -136,8 +146,10 @@ def run_prediction_job(job: PredictionJob, log: LogCallback | None = None) -> Ru
         use_accel=job.use_accel if job.use_accel else None,
         use_temporal_fall_validation=job.use_temporal_fall_validation,
         fall_validator_settings=fall_validator_settings,
+        temporal_sensitivity=sensitivity or "high",
         image_sequence_fps=job.image_fps,
         predictor_config=predictor_config,
+        on_prediction=on_prediction,
     )
 
     emit("Done.")

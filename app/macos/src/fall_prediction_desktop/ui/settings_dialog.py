@@ -6,6 +6,7 @@ Sidebar nav + content panel. Full i18n coverage.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDesktopServices
@@ -17,8 +18,14 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox,
 )
 
-from .theme import ThemeManager
-from .i18n import get_i18n, t
+# Relative imports work when running as `python -m fall_prediction_desktop`.
+# Absolute imports work inside a PyInstaller bundle where relative imports fail.
+try:
+    from .theme import ThemeManager
+    from .i18n import get_i18n, t
+except ImportError:
+    from fall_prediction_desktop.ui.theme import ThemeManager  # type: ignore[no-redef]
+    from fall_prediction_desktop.ui.i18n import get_i18n, t  # type: ignore[no-redef]
 
 # ── M3 color tokens for settings dialog ──────────────────────────────
 
@@ -76,12 +83,15 @@ class SettingsDialog(QDialog):
     language_changed = Signal(str)
 
     def __init__(self, settings, profile_manager, theme_manager: ThemeManager,
-                 app_version: str = "0.2.0", parent=None) -> None:
+                 app_version: str = "0.2.0", parent=None, repos=None,
+                 media_root: Path | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._profile_manager = profile_manager
         self._theme_manager = theme_manager
         self._app_version = app_version
+        self._repos = repos
+        self._media_root = media_root
         self._i18n = get_i18n()
 
         self._m3 = M3_DARK if theme_manager.effective == "dark" else M3_LIGHT
@@ -178,11 +188,15 @@ class SettingsDialog(QDialog):
             ),
             self._setting_row_toggle(
                 t("settings.startOnBoot", "Start on System Boot"),
-                t("settings.startOnBootDesc", "Launch FallGuard automatically when macOS starts."),
+                t("settings.startOnBootDesc", "Reserved for a future macOS login-item integration."),
+                checked=False,
+                enabled=False,
             ),
             self._setting_row_toggle(
                 t("settings.minimizeToTray", "Minimize to System Tray"),
                 t("settings.minimizeToTrayDesc", "Keep FallGuard available from the menu bar."),
+                checked=self._settings.minimize_to_tray,
+                callback=lambda checked: self._on_bool_setting("minimize_to_tray", checked),
             ),
         ])
 
@@ -213,12 +227,14 @@ class SettingsDialog(QDialog):
             self._setting_row_toggle(
                 t("settings.soundAlert", "Sound Alert"),
                 t("settings.soundAlertDesc", "Play a sound when risk becomes high."),
-                checked=True,
+                checked=self._settings.sound_alert,
+                callback=lambda checked: self._on_bool_setting("sound_alert", checked),
             ),
             self._setting_row_toggle(
                 t("settings.popupAlert", "Popup Alert"),
-                t("settings.popupAlertDesc", "Show a desktop notification for critical events."),
-                checked=True,
+                t("settings.popupAlertDesc", "Reserved for a future macOS notification integration."),
+                checked=False,
+                enabled=False,
             ),
             self._setting_row_toggle(
                 t("settings.emailNotification", "Email / Notification"),
@@ -396,7 +412,8 @@ class SettingsDialog(QDialog):
         return row
 
     def _setting_row_toggle(self, label: str, description: str,
-                            checked: bool = False, enabled: bool = True) -> QWidget:
+                            checked: bool = False, enabled: bool = True,
+                            callback=None) -> QWidget:
         row = QWidget()
         row.setObjectName("settingRow")
         layout = QHBoxLayout(row)
@@ -418,6 +435,8 @@ class SettingsDialog(QDialog):
         toggle.setObjectName("settingToggle")
         toggle.setChecked(checked)
         toggle.setEnabled(enabled)
+        if callback is not None:
+            toggle.toggled.connect(callback)
         layout.addWidget(toggle)
         return row
 
@@ -818,6 +837,10 @@ class SettingsDialog(QDialog):
             self._settings.sensitivity = level
             self._save()
 
+    def _on_bool_setting(self, name: str, checked: bool) -> None:
+        setattr(self._settings, name, checked)
+        self._save()
+
     def _on_profile_click(self, item: QListWidgetItem) -> None:
         pid = item.data(Qt.ItemDataRole.UserRole)
         if pid and pid != self._profile_manager.active_id:
@@ -836,16 +859,26 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(
             self,
             t("settings.exportLogs", "Export Logs"),
-            "fallguard_logs.json",
-            "JSON (*.json);;All (*)",
+            "fallguard_logs.zip",
+            "FallGuard Archive (*.zip);;JSON (*.json);;All (*)",
         )
         if not path:
             return
-        data = self._profile_manager.snapshot()
         try:
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False, indent=2)
-        except OSError as exc:
+            if self._repos is not None:
+                from ..data_services import ExportService
+
+                result = ExportService(self._repos.db).export(Path(path))
+                QMessageBox.information(
+                    self,
+                    t("settings.exportLogs", "Export Logs"),
+                    f"Exported to {result.path}",
+                )
+            else:
+                data = self._profile_manager.snapshot()
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, ensure_ascii=False, indent=2)
+        except (OSError, ValueError) as exc:
             QMessageBox.warning(self, t("settings.exportLogs", "Export Logs"), str(exc))
 
     def _clear_history(self) -> None:
@@ -858,18 +891,43 @@ class SettingsDialog(QDialog):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        for profile in self._profile_manager.list_all():
-            profile.fall_events.clear()
-        save = getattr(self._profile_manager, "_save", None)
-        if callable(save):
-            save()
-        self._refresh_profiles()
+        try:
+            if self._repos is not None and self._media_root is not None:
+                from ..data_services import HistoryService
+
+                warnings = HistoryService(self._repos.db, self._media_root).clear()
+                if warnings:
+                    QMessageBox.warning(
+                        self,
+                        t("settings.clearHistory", "Clear History"),
+                        "History was cleared, but some media files could not be removed:\n"
+                        + "\n".join(warnings[:5]),
+                    )
+            for profile in self._profile_manager.list_all():
+                profile.fall_events.clear()
+            save = getattr(self._profile_manager, "_save", None)
+            if callable(save):
+                save()
+            self._refresh_profiles()
+        except (OSError, RuntimeError) as exc:
+            QMessageBox.warning(self, t("settings.clearHistory", "Clear History"), str(exc))
 
     def _open_dataset_folder(self) -> None:
-        from ..web_app import find_app_root, writable_output_root
+        if self._repos is not None and self._media_root is not None:
+            from .dataset_dialog import DatasetDialog
+
+            DatasetDialog(self._repos.media, self._media_root, self).exec()
+            return
+        try:
+            from ..web_app import find_app_root, writable_output_root
+        except ImportError:
+            from fall_prediction_desktop.web_app import find_app_root, writable_output_root  # type: ignore[no-redef]
         folder = writable_output_root(find_app_root())
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def _save(self) -> None:
-        from ..web_app import save_settings, find_app_root
+        try:
+            from ..web_app import save_settings, find_app_root
+        except ImportError:
+            from fall_prediction_desktop.web_app import save_settings, find_app_root  # type: ignore[no-redef]
         save_settings(find_app_root(), self._settings)

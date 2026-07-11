@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import shutil
 import socket
@@ -29,7 +30,14 @@ from fall_prediction.sensitivity import (
     sensitivity_thresholds,
 )
 
-from .runner import PredictionJob, ensure_repo_on_path, find_app_root, run_prediction_job, safe_filename
+# Relative imports work when running as `python -m fall_prediction_desktop`.
+# Absolute imports work inside a PyInstaller bundle where relative imports fail.
+try:
+    from .runner import PredictionJob, ensure_repo_on_path, find_app_root, run_prediction_job, safe_filename
+    from .paths import media_output_dir, user_data_dir
+except ImportError:
+    from fall_prediction_desktop.runner import PredictionJob, ensure_repo_on_path, find_app_root, run_prediction_job, safe_filename  # type: ignore[no-redef]
+    from fall_prediction_desktop.paths import media_output_dir, user_data_dir  # type: ignore[no-redef]
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -44,6 +52,7 @@ SENSITIVITY_THRESHOLDS = {
 }
 
 SETTINGS_FILENAME = "fallguard_settings.json"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,34 +61,87 @@ class AppSettings:
     camera_index: int = 0
     theme: str = "system"                    # "light" | "dark" | "system"
     lang: str = "en"                         # "en" | "zh"
+    sound_alert: bool = True
+    popup_alert: bool = False
+    start_on_boot: bool = False
+    minimize_to_tray: bool = False
 
     def thresholds(self) -> dict[str, float]:
         return sensitivity_thresholds(self.sensitivity)
 
 
 def load_settings(app_root: Path) -> AppSettings:
-    path = app_root / SETTINGS_FILENAME
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return AppSettings(
-            sensitivity=normalize_sensitivity(data.get("sensitivity")),
-            camera_index=data.get("camera_index", 0),
-            theme=data.get("theme", "system"),
-            lang=data.get("lang", "en"),
-        )
-    except (OSError, json.JSONDecodeError, KeyError):
-        return AppSettings()
+    # Read the canonical user-data file first, then the legacy app-root file
+    # solely for one-time migration from older source builds.
+    for path in (user_data_dir() / SETTINGS_FILENAME, app_root / SETTINGS_FILENAME):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return AppSettings(
+                sensitivity=normalize_sensitivity(data.get("sensitivity")),
+                camera_index=int(data.get("camera_index", 0)),
+                theme=data.get("theme", "system"),
+                lang=data.get("lang", "en"),
+                sound_alert=bool(data.get("sound_alert", True)),
+                popup_alert=bool(data.get("popup_alert", False)),
+                start_on_boot=bool(data.get("start_on_boot", False)),
+                minimize_to_tray=bool(data.get("minimize_to_tray", False)),
+            )
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+    return AppSettings()
 
 
 def save_settings(app_root: Path, settings: AppSettings) -> None:
-    path = app_root / SETTINGS_FILENAME
+    values = {
+        "sensitivity": normalize_sensitivity(settings.sensitivity),
+        "camera_index": str(settings.camera_index),
+        "theme": settings.theme,
+        "language": settings.lang,
+        "sound_alert": str(settings.sound_alert).lower(),
+        "popup_alert": str(settings.popup_alert).lower(),
+        "start_on_boot": str(settings.start_on_boot).lower(),
+        "minimize_to_tray": str(settings.minimize_to_tray).lower(),
+    }
+
+    # SQLite is the source of truth.  The JSON write below is retained only
+    # for migration compatibility with older builds and may be unwritable
+    # inside a signed .app bundle.
+    try:
+        from .database.database import get_database
+    except ImportError:
+        from fall_prediction_desktop.database.database import get_database  # type: ignore[no-redef]
+    try:
+        db = get_database()
+        try:
+            from .database.repositories import ProfilesRepository, SettingsRepository
+        except ImportError:
+            from fall_prediction_desktop.database.repositories import ProfilesRepository, SettingsRepository  # type: ignore[no-redef]
+        repo = SettingsRepository(db)
+        for key, value in values.items():
+            repo.set(key, value)
+        profiles = ProfilesRepository(db)
+        active = profiles.get_active()
+        if active is not None:
+            profiles.update(
+                active["id"],
+                sensitivity=values["sensitivity"],
+                camera_index=settings.camera_index,
+            )
+    except Exception as exc:
+        logger.debug("Settings database persistence unavailable: %s", exc)
+
+    path = user_data_dir() / SETTINGS_FILENAME
     try:
         path.write_text(
             json.dumps({
-                "sensitivity": normalize_sensitivity(settings.sensitivity),
+                "sensitivity": values["sensitivity"],
                 "camera_index": settings.camera_index,
                 "theme": settings.theme,
                 "lang": settings.lang,
+                "sound_alert": settings.sound_alert,
+                "popup_alert": settings.popup_alert,
+                "start_on_boot": settings.start_on_boot,
+                "minimize_to_tray": settings.minimize_to_tray,
             }, indent=2),
             encoding="utf-8",
         )
@@ -88,7 +150,14 @@ def save_settings(app_root: Path, settings: AppSettings) -> None:
 
 
 def scan_camera_indices() -> list[int]:
-    """Return only the built-in Mac camera index to avoid activating iPhone Continuity Camera."""
+    """Return only the built-in Mac camera index to avoid activating iPhone Continuity Camera.
+
+    NOTE: This function deliberately returns a hard-coded [0] rather than
+    enumerating all available camera devices (e.g. via AVFoundation).
+    Enumerating cameras on macOS can trigger iPhone Continuity Camera
+    activation prompts, which is disruptive and slow.  Users who need a
+    different camera index can change it in settings.
+    """
     return [0]
 SINGLE_IMAGE_REPEAT_FRAMES = 24
 
@@ -127,30 +196,70 @@ class UserProfile:
 
 
 class ProfileManager:
-    def __init__(self, app_root: Path) -> None:
-        self._path = app_root / PROFILES_FILENAME
-        self._lock = threading.Lock()
+    def __init__(self, app_root: Path, data_dir: Path | None = None, repository=None) -> None:
+        self._path = (data_dir or user_data_dir()) / PROFILES_FILENAME
+        self._legacy_path = app_root / PROFILES_FILENAME
+        self._lock = threading.RLock()
+        self._repository = repository
         self.profiles: dict[str, UserProfile] = {}
         self.active_id: str | None = None
         self._load()
-        # Auto-create a default profile if none exist
-        if not self.profiles:
+        if self._repository is not None:
+            self._sync_repository()
+        elif not self.profiles:
             self.create("Default")
 
+    def _sync_repository(self) -> None:
+        """Migrate legacy profiles, then reload SQLite as the source of truth."""
+        legacy_profiles = dict(self.profiles)
+        legacy_active_id = self.active_id
+        for profile in legacy_profiles.values():
+            self._repository.upsert(
+                profile.id,
+                profile.name,
+                is_active=profile.id == legacy_active_id,
+            )
+
+        rows = self._repository.list_all()
+        if not rows:
+            row = self._repository.create("Default")
+            rows = [row]
+        by_name = {profile.name: profile for profile in legacy_profiles.values()}
+        self.profiles = {}
+        for row in rows:
+            cached = legacy_profiles.get(row["id"]) or by_name.get(row["name"])
+            self.profiles[row["id"]] = UserProfile(
+                id=row["id"],
+                name=row["name"],
+                created_at=row["created_at"],
+                fall_events=list(cached.fall_events) if cached else [],
+            )
+        active = self._repository.get_active()
+        self.active_id = active["id"] if active else rows[0]["id"]
+        if active is None:
+            self._repository.activate(self.active_id)
+        self._save()
+
     def _load(self) -> None:
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            self.active_id = data.get("active_id")
-            for pid, pd in data.get("profiles", {}).items():
-                self.profiles[pid] = UserProfile(
-                    id=pd["id"],
-                    name=pd["name"],
-                    created_at=pd.get("created_at") or pd.get("createdAt", ""),
-                    fall_events=pd.get("fall_events") or pd.get("fallEvents", []),
-                )
-        except (OSError, json.JSONDecodeError, KeyError):
-            self.profiles = {}
-            self.active_id = None
+        for path in (self._path, self._legacy_path):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                self.active_id = data.get("active_id")
+                for pid, pd in data.get("profiles", {}).items():
+                    self.profiles[pid] = UserProfile(
+                        id=pd["id"],
+                        name=pd["name"],
+                        created_at=pd.get("created_at") or pd.get("createdAt", ""),
+                        fall_events=pd.get("fall_events") or pd.get("fallEvents", []),
+                    )
+                if self.profiles:
+                    if path == self._legacy_path:
+                        self._save()
+                    return
+            except (OSError, json.JSONDecodeError, KeyError, TypeError):
+                continue
+        self.profiles = {}
+        self.active_id = None
 
     def _save(self) -> None:
         try:
@@ -171,8 +280,13 @@ class ProfileManager:
 
     def create(self, name: str) -> UserProfile:
         with self._lock:
-            pid = uuid.uuid4().hex[:12]
-            now = datetime.now(timezone.utc).isoformat()
+            if self._repository is not None:
+                row = self._repository.create(name)
+                pid = row["id"]
+                now = row["created_at"]
+            else:
+                pid = uuid.uuid4().hex[:12]
+                now = datetime.now(timezone.utc).isoformat()
             profile = UserProfile(id=pid, name=name.strip() or "Unnamed", created_at=now)
             self.profiles[pid] = profile
             if self.active_id is None:
@@ -186,15 +300,23 @@ class ProfileManager:
                 return False
             if len(self.profiles) <= 1:
                 return False  # Keep at least one profile
+            if self._repository is not None and not self._repository.delete(profile_id):
+                return False
             del self.profiles[profile_id]
             if self.active_id == profile_id:
-                self.active_id = next(iter(self.profiles.keys()))
+                if self._repository is not None:
+                    active = self._repository.get_active()
+                    self.active_id = active["id"] if active else next(iter(self.profiles.keys()))
+                else:
+                    self.active_id = next(iter(self.profiles.keys()))
             self._save()
             return True
 
     def activate(self, profile_id: str) -> bool:
         with self._lock:
             if profile_id not in self.profiles:
+                return False
+            if self._repository is not None and not self._repository.activate(profile_id):
                 return False
             self.active_id = profile_id
             self._save()
@@ -216,20 +338,23 @@ class ProfileManager:
 
     @property
     def active(self) -> UserProfile | None:
-        if self.active_id is None:
-            return None
-        return self.profiles.get(self.active_id)
+        with self._lock:
+            if self.active_id is None:
+                return None
+            return self.profiles.get(self.active_id)
 
     def list_all(self) -> list[UserProfile]:
-        return list(self.profiles.values())
+        with self._lock:
+            return list(self.profiles.values())
 
     def snapshot(self) -> dict:
-        active = self.active
-        return {
-            "profiles": [p.to_dict() for p in self.profiles.values()],
-            "activeId": self.active_id,
-            "activeProfile": active.to_dict() if active else None,
-        }
+        with self._lock:
+            active = self.profiles.get(self.active_id) if self.active_id else None
+            return {
+                "profiles": [p.to_dict() for p in self.profiles.values()],
+                "activeId": self.active_id,
+                "activeProfile": active.to_dict() if active else None,
+            }
 
 
 @dataclass
@@ -279,19 +404,7 @@ class UploadedMediaFile:
 
 
 def writable_output_root(app_root: Path) -> Path:
-    candidates = [Path.home() / "Movies" / "FallGuard", app_root / "outputs"]
-    for candidate in candidates:
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            probe = candidate / ".write-test"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink(missing_ok=True)
-            return candidate
-        except OSError:
-            continue
-    fallback = app_root / "outputs"
-    fallback.mkdir(parents=True, exist_ok=True)
-    return fallback
+    return media_output_dir()
 
 
 class MediaImportProcessor:
@@ -303,6 +416,7 @@ class MediaImportProcessor:
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._snapshot = MediaJobSnapshot()
+        self._repos = None  # AppRepositories — attached by the application bootstrap
 
     def update_settings(self, settings: AppSettings) -> None:
         with self._lock:
@@ -315,7 +429,7 @@ class MediaImportProcessor:
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             snapshot = self._snapshot
-            return {
+            result = {
                 "running": snapshot.running,
                 "state": snapshot.state,
                 "title": snapshot.title,
@@ -326,6 +440,7 @@ class MediaImportProcessor:
                 "startedAt": snapshot.started_at,
                 "finishedAt": snapshot.finished_at,
             }
+        return result
 
     def start_from_upload(self, filename: str, stream: BinaryIO) -> dict[str, object]:
         return self.start_from_uploads([UploadedMediaFile(filename=filename, stream=stream)])
@@ -440,9 +555,63 @@ class MediaImportProcessor:
         return self.snapshot()
 
     def _run_media_job(self, source_path: Path, display_name: str, media_kind: str, output_dir: Path | None = None) -> None:
+        session_id: str | None = None
+        processor = None
+        event_media = None
+        frame_count = 0
+        risk_sum = 0.0
+        peak_risk = 0.0
         try:
             target_dir = output_dir if output_dir else self.output_dir
             target_dir.mkdir(parents=True, exist_ok=True)
+            if self._repos is not None:
+                active = self._repos.profiles.get_active()
+                profile_id = active["id"] if active else "default"
+                session = self._repos.sessions.create(
+                    profile_id=profile_id,
+                    source_type=media_kind,
+                    source_path=str(source_path),
+                    pose_backend="yolo",
+                    predictor_type="ml",
+                )
+                session_id = session["id"]
+                from .frame_pipeline import FrameBusinessProcessor
+                from .alert_service import SoundAlertService
+
+                processor = FrameBusinessProcessor(
+                    repos=self._repos,
+                    session_id=session_id,
+                    profile_id=profile_id,
+                    fps=30.0,
+                    state_change_observer=SoundAlertService(
+                        enabled=self.settings.sound_alert,
+                    ),
+                )
+                from .event_media_buffer import EventMediaBuffer
+
+                event_media = EventMediaBuffer(
+                    repos=self._repos,
+                    output_root=writable_output_root(self.app_root),
+                    session_id=session_id,
+                    fps=30.0,
+                )
+
+            def on_prediction(prediction, frame_index: int, timestamp: float, frame) -> None:
+                nonlocal frame_count, risk_sum, peak_risk
+                frame_count = frame_index + 1
+                risk = max(0.0, min(1.0, float(prediction.risk_score)))
+                risk_sum += risk
+                peak_risk = max(peak_risk, risk)
+                if processor is not None:
+                    processor.process(prediction, frame_index, timestamp)
+                    if event_media is not None:
+                        event_media.add_frame(
+                            frame,
+                            timestamp,
+                            processor.event_service.active_event_id
+                            if processor.event_service else None,
+                        )
+
             result = run_prediction_job(
                 PredictionJob(
                     source=str(source_path),
@@ -451,7 +620,7 @@ class MediaImportProcessor:
                     predictor="ml",
                     sensitivity=self._current_sensitivity(),
                     yolo_model_path=Path("models/yolo26n-pose.pt"),
-                    classifier_model_path=Path("models/yolo_tail60_prefall_accel_classifier.joblib"),
+                    classifier_model_path=Path("models/yolo_tail60_prefall_accel_upperbody_classifier.joblib"),
                     write_csv=False,
                     write_video=True,
                     show_preview=False,
@@ -461,6 +630,7 @@ class MediaImportProcessor:
                     image_fps=30.0,
                 ),
                 log=self._handle_job_log,
+                on_prediction=on_prediction,
             )
             output_video = str(result.output_video) if result.output_video else ""
             output_name = Path(output_video).name if output_video else "output file"
@@ -484,6 +654,30 @@ class MediaImportProcessor:
                 error=str(exc),
                 finished_at=datetime.now().strftime("%H:%M:%S"),
             )
+        finally:
+            if event_media is not None:
+                try:
+                    event_media.close()
+                except Exception:
+                    pass
+            if processor is not None:
+                try:
+                    processor.close()
+                except Exception:
+                    pass
+            if session_id is not None and self._repos is not None:
+                try:
+                    snapshot = self.snapshot()
+                    self._repos.sessions.stop(
+                        session_id=session_id,
+                        total_frames=frame_count,
+                        total_events=self._repos.events.count_for_session(session_id),
+                        peak_risk=round(peak_risk, 4),
+                        avg_risk=round(risk_sum / frame_count, 4) if frame_count else 0.0,
+                        error_message=str(snapshot["error"]) or None,
+                    )
+                except Exception:
+                    pass
 
     def _detect_media_kind(self, uploads: list[UploadedMediaFile]) -> str:
         suffixes = [Path(upload.filename).suffix.lower() for upload in uploads]
@@ -762,7 +956,10 @@ class CameraMonitor:
         self.app_root = app_root
         self.settings = settings or AppSettings()
         self.profile_manager: ProfileManager | None = None
-        self.output_dir = app_root / "outputs" / "camera_sessions"
+        self._repos = None  # AppRepositories — set by main_native() after DB init
+        self._session_id: str | None = None  # current monitoring session ID
+        self._profile_id: str | None = None  # profile bound to the current session
+        self.output_dir = writable_output_root(app_root) / "camera_sessions"
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
@@ -771,6 +968,10 @@ class CameraMonitor:
         self._jpeg_frame: bytes | None = None
         self._snapshot = MonitorSnapshot()
         self._last_activity_state = ""
+        self._fsm = None       # RiskStateMachine — created in _run_camera_loop
+        self._event_svc = None  # EventService — created in _run_camera_loop
+        import atexit
+        atexit.register(self._cleanup_db)
         self._debug_log("CameraMonitor.__init__", f"app_root={app_root}")
         self.preload_models()
 
@@ -790,6 +991,16 @@ class CameraMonitor:
         except Exception:
             pass
 
+    def _cleanup_db(self) -> None:
+        try:
+            from .database.database import get_database as _get_db
+        except ImportError:
+            from fall_prediction_desktop.database.database import get_database as _get_db
+        try:
+            _get_db().close_all()
+        except Exception:
+            pass
+
     def update_settings(self, settings: AppSettings) -> None:
         with self._lock:
             self.settings = settings
@@ -804,7 +1015,7 @@ class CameraMonitor:
         ml_config = ml_config_for_sensitivity(sensitivity)
         return create_predictor(
             predictor_type="ml",
-            classifier_model_path=self.app_root / "models" / "yolo_tail60_prefall_accel_classifier.joblib",
+            classifier_model_path=self.app_root / "models" / "yolo_tail60_prefall_accel_upperbody_classifier.joblib",
             predictor_config=predictor_config_for_sensitivity(sensitivity),
             prefall_alert_threshold=ml_config.prefall_alert_threshold,
             prefall_alert_frames=ml_config.prefall_alert_frames,
@@ -812,6 +1023,7 @@ class CameraMonitor:
             use_accel=True,
             use_temporal_fall_validation=True,
             fall_validator_settings=ml_config.fall_validator_settings,
+            temporal_sensitivity=sensitivity,
         )
 
     def start(self) -> None:
@@ -831,7 +1043,28 @@ class CameraMonitor:
             )
             self._jpeg_frame = None
             self._last_activity_state = ""
+            self._fsm = None       # Reset FSM for fresh session
+            self._event_svc = None  # Reset EventService for fresh session
             self._debug_log("start", "snapshot set to loading=True")
+
+        # Create a monitoring session in the database (Task 4)
+        self._session_id = None
+        self._profile_id = None
+        try:
+            if self._repos is not None:
+                active = self._repos.profiles.get_active()
+                profile_id = active["id"] if active else "default"
+                self._profile_id = profile_id
+                sess = self._repos.sessions.create(
+                    profile_id=profile_id,
+                    source_type="camera",
+                    pose_backend="yolo",
+                    predictor_type="ml",
+                )
+                self._session_id = sess["id"]
+                self._debug_log("start", f"DB session created: {self._session_id[:12]}...")
+        except Exception as exc:
+            self._debug_log("start", f"DB session creation failed (non-fatal): {exc}")
 
         self._worker = threading.Thread(target=self._run_camera_loop, daemon=True)
         self._worker.start()
@@ -839,6 +1072,13 @@ class CameraMonitor:
 
     def stop(self) -> None:
         self._stop_event.set()
+        worker = self._worker
+        if (
+            worker
+            and worker.is_alive()
+            and worker is not threading.current_thread()
+        ):
+            worker.join(timeout=5.0)
 
     def preload_models(self) -> None:
         with self._lock:
@@ -854,7 +1094,7 @@ class CameraMonitor:
             from fall_prediction.pose import preload_yolo_model
 
             preload_yolo_model(self.app_root / "models" / "yolo26n-pose.pt", warmup=True)
-            load_model_artifact(self.app_root / "models" / "yolo_tail60_prefall_accel_classifier.joblib")
+            load_model_artifact(self.app_root / "models" / "yolo_tail60_prefall_accel_upperbody_classifier.joblib")
         except Exception as exc:
             with self._lock:
                 self._preload_error = str(exc)
@@ -866,7 +1106,7 @@ class CameraMonitor:
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             snapshot = self._snapshot
-            return {
+            result = {
                 "running": snapshot.running,
                 "loading": snapshot.loading,
                 "cameraConnected": snapshot.camera_connected,
@@ -891,10 +1131,36 @@ class CameraMonitor:
                     for activity in snapshot.activities[-6:]
                 ],
             }
+        if self._repos is not None:
+            try:
+                result["recentEvents"] = [
+                    {
+                        "id": event["id"],
+                        "level": "danger" if event["event_type"] == "fall" else "warning",
+                        "title": "Fall detected" if event["event_type"] == "fall" else "Pre-fall warning",
+                        "time": event["started_at"],
+                        "risk": int(round(float(event["peak_risk"]) * 100)),
+                        "eventType": event["event_type"],
+                        "status": event["status"],
+                    }
+                    for event in self._repos.events.list_recent(12)
+                ]
+            except Exception as exc:
+                self._debug_log("snapshot.recent_events", str(exc))
+        return result
 
     def _run_camera_loop(self) -> None:
         capture = None
         estimator = None
+        frame_processor = None
+        event_media = None
+        frame_index = 0  # Initialized early so finally block always has it
+        risk_sum = 0.0
+        risk_count = 0
+        peak_risk = 0.0
+        fps_sum = 0.0
+        fps_count = 0
+        resolution = ""
         try:
             self._debug_log("_run_camera_loop", "thread started, importing cv2...")
             import cv2
@@ -942,6 +1208,8 @@ class CameraMonitor:
             width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
             height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
             resolution = f"{width}x{height}"
+            if self._session_id is not None and self._repos is not None:
+                self._repos.sessions.update_stats(self._session_id, resolution=resolution)
 
             self._add_activity("normal", "Monitoring started", 0)
             self._update(
@@ -972,14 +1240,57 @@ class CameraMonitor:
                     predictor = self._create_predictor_for_sensitivity(sensitivity)
                 prediction = predictor.predict(landmarks, frame_index, timestamp)
 
-                display_state = prediction.alert_state or prediction.state
-                risk_percent = max(0, min(100, int(round(prediction.risk_score * 100))))
-                confidence = max(0, min(100, int(round(prediction.features.visibility_mean * 100))))
+                # Lazily initialize the shared business frame processor.
+                if frame_processor is None:
+                    try:
+                        from .alert_service import SoundAlertService
+                        from .frame_pipeline import FrameBusinessProcessor
+                    except ImportError:
+                        from fall_prediction_desktop.alert_service import SoundAlertService  # type: ignore[no-redef]
+                        from fall_prediction_desktop.frame_pipeline import FrameBusinessProcessor  # type: ignore[no-redef]
+                    frame_processor = FrameBusinessProcessor(
+                        repos=self._repos,
+                        session_id=self._session_id,
+                        profile_id=self._profile_id,
+                        fps=fps,
+                        state_change_observer=SoundAlertService(
+                            enabled=self.settings.sound_alert,
+                        ),
+                    )
+                    self._fsm = frame_processor.state_machine
+                    self._event_svc = frame_processor.event_service
+                    try:
+                        from .event_media_buffer import EventMediaBuffer
+                    except ImportError:
+                        from fall_prediction_desktop.event_media_buffer import EventMediaBuffer  # type: ignore[no-redef]
+                    event_media = EventMediaBuffer(
+                        repos=self._repos,
+                        output_root=writable_output_root(self.app_root),
+                        session_id=self._session_id,
+                        fps=fps,
+                    )
+
+                processed = frame_processor.process(prediction, frame_index, timestamp)
+                fsm_event = processed.state_change
+                display_state = processed.state
+                if event_media is not None:
+                    event_media.add_frame(
+                        frame,
+                        timestamp,
+                        self._event_svc.active_event_id if self._event_svc else None,
+                    )
+
+                risk_percent = max(0, min(100, int(round(processed.risk_score * 100))))
+                risk_value = processed.risk_score
+                risk_sum += risk_value
+                risk_count += 1
+                peak_risk = max(peak_risk, risk_value)
+                confidence = max(0, min(100, int(round(processed.confidence * 100))))
                 title, detail, level = state_copy(display_state)
                 if display_state != self._last_activity_state and display_state in {"Normal", "Pre-fall", "Fall"}:
                     self._last_activity_state = display_state
                     self._add_activity(level, title, risk_percent)
-                    # Record fall/pre-fall events to the active profile
+                    # Record fall/pre-fall events to the active profile (legacy JSON)
                     if display_state in {"Pre-fall", "Fall"} and self.profile_manager:
                         self.profile_manager.record_fall(display_state, risk_percent, detail)
                 _, buffer = cv2.imencode(".jpg", frame)
@@ -990,6 +1301,8 @@ class CameraMonitor:
                 now = time.monotonic()
                 if now - last_fps_at >= 1.0:
                     live_fps = fps_frames / (now - last_fps_at)
+                    fps_sum += live_fps
+                    fps_count += 1
                     fps_frames = 0
                     last_fps_at = now
                     self._update(fps=live_fps)
@@ -1019,11 +1332,21 @@ class CameraMonitor:
                 environment="Check Setup",
             )
         finally:
-            if estimator:
-                estimator.close()
-            if capture:
-                capture.release()
-            if not self._snapshot.error:
+            # Each cleanup step is individually protected so one failure
+            # does not skip the remaining steps.
+            try:
+                if estimator:
+                    estimator.close()
+            except Exception:
+                pass
+            try:
+                if capture:
+                    capture.release()
+            except Exception:
+                pass
+            with self._lock:
+                has_error = bool(self._snapshot.error)
+            if not has_error:
                 self._add_activity("normal", "Monitoring stopped", self._snapshot.risk_percent)
                 self._update(
                     running=False,
@@ -1036,6 +1359,39 @@ class CameraMonitor:
                     fps=0.0,
                     environment="Waiting",
                 )
+
+            if event_media is not None:
+                try:
+                    event_media.close()
+                except Exception:
+                    pass
+            # Close the shared frame pipeline before finalizing its session.
+            if frame_processor is not None:
+                try:
+                    frame_processor.close()
+                except Exception:
+                    pass
+            # ── Task 4: close the monitoring session in the database ──
+            if self._session_id is not None and self._repos is not None:
+                try:
+                    self._repos.samples.commit()  # flush remaining samples
+                    snap = self._snapshot
+                    total_frames = frame_index  # always defined (initialized before try block)
+                    total_events = self._repos.events.count_for_session(self._session_id)
+                    self._repos.sessions.stop(
+                        session_id=self._session_id,
+                        total_frames=total_frames,
+                        total_events=total_events,
+                        peak_risk=round(peak_risk, 4),
+                        avg_risk=round(risk_sum / risk_count, 4) if risk_count else 0.0,
+                        fps_avg=round(fps_sum / fps_count, 1) if fps_count else round(snap.fps, 1),
+                        error_message=snap.error if snap.state == "Error" else None,
+                    )
+                    self._debug_log("_run_camera_loop", f"DB session closed: {self._session_id[:12]}...")
+                except Exception as exc:
+                    self._debug_log("_run_camera_loop", f"DB session close failed (non-fatal): {exc}")
+                finally:
+                    self._session_id = None
 
     def _update(self, **changes: object) -> None:
         with self._lock:
@@ -1389,6 +1745,8 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         while True:
+            if not self.server.monitor._snapshot.running:
+                break
             frame = self.server.monitor.jpeg_frame()
             if frame is None:
                 time.sleep(0.12)
@@ -1797,31 +2155,78 @@ def connect_and_show(url: str) -> None:
 
 def main_native(argv: list[str] | None = None) -> None:
     """Launch FallGuard with native PySide6 UI (no web/HTTP layer)."""
-    from PySide6.QtGui import QIcon
-    from PySide6.QtWidgets import QApplication
-    from .ui.main_window import MainWindow
+    from PySide6.QtGui import QAction, QIcon
+    from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
+    # Relative imports work when running as `python -m fall_prediction_desktop`.
+    # Absolute imports work inside a PyInstaller bundle where relative imports fail.
+    try:
+        from .ui.main_window import MainWindow
+    except ImportError:
+        from fall_prediction_desktop.ui.main_window import MainWindow  # type: ignore[no-redef]
 
     app_root = find_app_root()
     ensure_repo_on_path(app_root)
 
-    # Resolve resource directories
-    bundle_root = Path(getattr(sys, "_MEIPASS", app_root))
-    assets_root = bundle_root / "assets"
-    if not assets_root.exists():
-        assets_root = app_root / "assets"
-    locales_dir = assets_root / "locales"
-
-    # Init backend components
-    settings = load_settings(app_root)
-    profile_manager = ProfileManager(app_root)
-    monitor = CameraMonitor(app_root, settings)
-    monitor.profile_manager = profile_manager
-    media_processor = MediaImportProcessor(app_root, settings)
-
-    # Create Qt app
+    # Create QApplication before database initialization so startup failures
+    # are visible in a normal macOS dialog even in a windowed bundle.
     qt_app = QApplication(sys.argv[:1] if argv is None else argv)
     qt_app.setApplicationName("FallGuard")
     qt_app.setOrganizationName("FallGuard")
+
+    # Resolve resource directories — inside a PyInstaller bundle all data
+    # folders (assets, web, models, configs) are at the _MEIPASS root.
+    bundle_root = Path(getattr(sys, "_MEIPASS", app_root))
+    assets_root = bundle_root / "assets"
+    if not assets_root.is_dir():
+        assets_root = app_root / "assets"
+
+    # locales may live under assets/locales/ (build artifact) or web/locales/ (source).
+    locales_dir = assets_root / "locales"
+    if not locales_dir.is_dir():
+        web_root = bundle_root / "web"
+        if not web_root.is_dir():
+            web_root = app_root / "web"
+        locales_dir = web_root / "locales"
+
+    # Init backend components — database layer (Tasks 1-4 from dev workflow)
+    try:
+        from .database.init_db import init_app_database
+    except ImportError:
+        from fall_prediction_desktop.database.init_db import init_app_database  # type: ignore[no-redef]
+    try:
+        repos = init_app_database(app_root)
+    except Exception as exc:
+        QMessageBox.critical(
+            None,
+            "FallGuard Startup Error",
+            f"FallGuard could not initialize its local database.\n\n{exc}",
+        )
+        return
+
+    # Load settings from DB (with JSON fallback for migration)
+    settings = load_settings(app_root)
+    # Migrate: if JSON has settings but DB doesn't, seed DB from JSON
+    if repos.settings.get("language", "") == "":
+        repos.settings.set("language", settings.lang)
+        repos.settings.set("theme", settings.theme)
+        repos.settings.set("sensitivity", normalize_sensitivity(settings.sensitivity))
+    else:
+        # Override JSON settings from DB (single source of truth)
+        settings.lang = repos.settings.get("language", settings.lang)
+        settings.theme = repos.settings.get("theme", settings.theme)
+        settings.sensitivity = normalize_sensitivity(repos.settings.get("sensitivity", settings.sensitivity))
+        settings.sound_alert = repos.settings.get_bool("sound_alert", settings.sound_alert)
+        settings.popup_alert = repos.settings.get_bool("popup_alert", settings.popup_alert)
+        settings.start_on_boot = repos.settings.get_bool("start_on_boot", settings.start_on_boot)
+        settings.minimize_to_tray = repos.settings.get_bool("minimize_to_tray", settings.minimize_to_tray)
+
+    profile_manager = ProfileManager(app_root, repository=repos.profiles)
+    monitor = CameraMonitor(app_root, settings)
+    monitor.profile_manager = profile_manager
+    monitor._repos = repos  # Attach DB repositories for session/event tracking
+    media_processor = MediaImportProcessor(app_root, settings)
+    media_processor._repos = repos
+
     icon_path = assets_root / "FallGuard.icns"
     if not icon_path.exists():
         icon_path = assets_root / "FallGuard.png"
@@ -1839,9 +2244,39 @@ def main_native(argv: list[str] | None = None) -> None:
         locales_dir=locales_dir,
         assets_dir=assets_root,
         app_version="0.2.0",
+        repos=repos,
     )
     if not app_icon.isNull():
         window.setWindowIcon(app_icon)
+
+    tray_icon = None
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        tray_icon = QSystemTrayIcon(app_icon, qt_app)
+        tray_icon.setToolTip("FallGuard")
+        tray_menu = QMenu()
+        show_action = QAction("Show FallGuard", tray_menu)
+        start_action = QAction("Start Monitoring", tray_menu)
+        stop_action = QAction("Stop Monitoring", tray_menu)
+        quit_action = QAction("Quit FallGuard", tray_menu)
+        show_action.triggered.connect(lambda: (window.show(), window.raise_(), window.activateWindow()))
+        start_action.triggered.connect(window._start_monitoring)
+        stop_action.triggered.connect(window._stop_monitoring)
+        quit_action.triggered.connect(window.request_quit)
+        tray_menu.addAction(show_action)
+        tray_menu.addSeparator()
+        tray_menu.addAction(start_action)
+        tray_menu.addAction(stop_action)
+        tray_menu.addSeparator()
+        tray_menu.addAction(quit_action)
+        tray_icon.setContextMenu(tray_menu)
+        tray_icon.activated.connect(
+            lambda reason: show_action.trigger()
+            if reason == QSystemTrayIcon.ActivationReason.Trigger
+            else None
+        )
+        tray_icon.show()
+        window._tray_icon = tray_icon
+
     window.show()
 
     sys.exit(qt_app.exec())

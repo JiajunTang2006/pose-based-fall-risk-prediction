@@ -12,7 +12,14 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from .runner import ensure_repo_on_path, find_app_root
+# Relative imports work when running as `python -m fall_prediction_desktop`.
+# Absolute imports work inside a PyInstaller bundle where relative imports fail.
+try:
+    from .runner import ensure_repo_on_path, find_app_root
+    from .paths import media_output_dir
+except ImportError:
+    from fall_prediction_desktop.runner import ensure_repo_on_path, find_app_root  # type: ignore[no-redef]
+    from fall_prediction_desktop.paths import media_output_dir  # type: ignore[no-redef]
 
 
 BG = "#f3f6f8"
@@ -72,7 +79,7 @@ class FallPredictionApp(tk.Tk):
         self.app_root = find_app_root()
         ensure_repo_on_path(self.app_root)
         self.app_dir = self.app_root
-        self.output_dir = self.app_root / "outputs" / "camera_sessions"
+        self.output_dir = media_output_dir() / "camera_sessions"
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
@@ -109,7 +116,7 @@ class FallPredictionApp(tk.Tk):
             from fall_prediction.pose import preload_yolo_model
 
             preload_yolo_model(self.app_root / "models" / "yolo26n-pose.pt", warmup=True)
-            load_model_artifact(self.app_root / "models" / "yolo_tail60_prefall_accel_classifier.joblib")
+            load_model_artifact(self.app_root / "models" / "yolo_tail60_prefall_accel_upperbody_classifier.joblib")
         except Exception:
             return
 
@@ -351,7 +358,7 @@ class FallPredictionApp(tk.Tk):
             )
             predictor = create_predictor(
                 predictor_type="ml",
-                classifier_model_path=self.app_root / "models" / "yolo_tail60_prefall_accel_classifier.joblib",
+                classifier_model_path=self.app_root / "models" / "yolo_tail60_prefall_accel_upperbody_classifier.joblib",
                 use_hmm=True,
                 use_accel=True,
                 use_temporal_fall_validation=True,

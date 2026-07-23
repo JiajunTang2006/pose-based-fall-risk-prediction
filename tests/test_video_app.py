@@ -68,6 +68,7 @@ class VideoAppTest(unittest.TestCase):
 
         self.assertEqual(tuple(row.keys()), CSV_COLUMNS)
         self.assertEqual(row["alert_state"], "Pre-fall")
+        self.assertEqual(row["advisory_state"], "")
 
     def test_process_video_releases_capture_when_initialization_fails(self):
         capture = FakeCapture()

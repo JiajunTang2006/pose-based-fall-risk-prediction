@@ -74,6 +74,8 @@ class Prediction:
     baseline_center_y: float | None
     alert_state: str | None = None
     system_status: str | None = None
+    advisory_state: str | None = None
+    decision_tier: str | None = None
 
 
 class FallPredictor:

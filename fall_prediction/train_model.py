@@ -1,29 +1,4 @@
-"""
-训练机器学习跌倒分类器。
 
-这个脚本接收的不是原始视频，而是前一步导出的"逐帧特征 CSV"。
-也就是说，完整流程是：
-
-    原始视频
-      -> MediaPipe 提取人体关键点
-      -> features.py 计算每一帧的身体运动特征
-      -> export_dataset_features.py 保存 CSV
-      -> 本脚本把连续多帧切成一个训练样本
-      -> scikit-learn 训练分类器
-      -> 保存 models/yolo_tail60_prefall_accel_classifier.joblib
-
-为什么要把"连续多帧"作为一个样本？
-跌倒不是一张静态图片能可靠判断的事件，它有时间过程：
-站立 -> 身体快速下降/倾斜 -> 接近地面 -> 倒地。
-所以模型需要看到一小段时间窗口。当前默认使用 15 帧窗口，约等于 0.5 秒视频；
-它比 30 帧窗口更偏向提前识别 Pre-fall 过渡阶段。
-
-使用示例：
-    python -m fall_prediction.train_model outputs/features/urfall_yolo/*.csv \
-        --output models/yolo_tail60_prefall_accel_classifier.joblib \
-        --window-size 15 \
-        --stride 3
-"""
 
 from __future__ import annotations
 
@@ -32,10 +7,16 @@ import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .ml_features import ACCEL_FEATURE_COLUMNS, ML_FEATURE_COLUMNS
 from .predictor import PredictorConfig
+from .robustness import (
+    ROBUST_ACCEL_FEATURE_COLUMNS,
+    ROBUST_ML_FEATURE_COLUMNS,
+    UPPER_BODY_ACCEL_FEATURE_COLUMNS,
+    UPPER_BODY_ML_FEATURE_COLUMNS,
+)
 from .window_dataset import DEFAULT_STRIDE, DEFAULT_WINDOW_SIZE, build_window_dataset
 
 
@@ -43,104 +24,120 @@ DEFAULT_PREDICTOR_CONFIG = PredictorConfig()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="从特征 CSV 训练机器学习跌倒分类器。")
-    parser.add_argument("csv_paths", nargs="*", help="特征 CSV 文件路径，可以直接写多个文件。")
-    parser.add_argument("--input-dir", default=None, help="可选：包含特征 CSV 的目录，会递归读取其中的 .csv 文件。")
+    parser = argparse.ArgumentParser(description="Train a machine-learning fall classifier from feature CSV files.")
+    parser.add_argument("csv_paths", nargs="*", help="One or more feature CSV paths.")
+    parser.add_argument("--input-dir", default=None, help="Optional directory scanned recursively for feature CSV files.")
     parser.add_argument(
         "--output",
         default="models/yolo_tail60_prefall_accel_classifier.joblib",
-        help="训练完成后保存的 joblib 模型路径。",
+        help="Output path for the trained joblib model.",
     )
     parser.add_argument(
         "--metrics-output",
         default=None,
-        help="验证指标 JSON 输出路径；默认保存到模型旁边的 .metrics.json 文件。",
+        help="Validation metrics JSON path; defaults to a .metrics.json file beside the model.",
     )
     parser.add_argument(
         "--window-size",
         type=int,
         default=DEFAULT_WINDOW_SIZE,
-        help="每个训练样本包含多少帧；15 帧约等于 0.5 秒，更偏向 Pre-fall 提前预警。",
+        help="Frames per training sample; 15 frames is about 0.5 seconds.",
     )
     parser.add_argument(
         "--stride",
         type=int,
         default=DEFAULT_STRIDE,
-        help="滑动窗口每次向前移动多少帧；越小样本越多，但重复也越多。",
+        help="Sliding-window step in frames.",
     )
     parser.add_argument(
         "--baseline-frames",
         type=int,
         default=DEFAULT_PREDICTOR_CONFIG.baseline_frames,
-        help="推理时建立身体中心基线使用多少帧，默认 15。",
+        help="Frames used to establish the body-center baseline during inference.",
     )
     parser.add_argument(
         "--smoothing-window",
         type=int,
         default=DEFAULT_PREDICTOR_CONFIG.smoothing_window,
-        help="推理时输出 smoothed_risk_score 的平滑窗口，默认 5。",
+        help="Smoothing window for smoothed_risk_score during inference.",
     )
     parser.add_argument(
         "--classifier",
         choices=("random_forest", "extra_trees", "gradient_boosting", "hist_gradient_boosting"),
         default="random_forest",
-        help="使用哪种 scikit-learn 分类器。默认 random_forest。",
+        help="scikit-learn classifier to train.",
     )
     parser.add_argument(
         "--label-mode",
         choices=("filename", "annotations"),
         default="filename",
-        help="标签来源：filename 根据文件名推断；annotations 使用帧区间标注文件。",
+        help="Label source: infer from filenames or use frame-interval annotations.",
     )
     parser.add_argument(
         "--annotations",
         action="append",
         default=None,
-        help="帧区间标注 CSV，列名必须是 video,start_frame,end_frame,label。可重复传入多个文件。",
+        help="Frame-interval annotation CSV with video,start_frame,end_frame,label columns. May be repeated.",
     )
     parser.add_argument(
         "--test-size",
         type=float,
         default=0.25,
-        help="验证集比例，按视频分组划分，默认 25%%；设为 0 时使用全部数据训练并跳过验证。",
+        help="Group-wise validation fraction. Set to 0 to train on all data without validation.",
     )
-    parser.add_argument("--random-state", type=int, default=42, help="随机种子；固定后每次划分和训练结果更容易复现。")
-    parser.add_argument("--normal-weight", type=float, default=1.0, help="Normal 样本训练权重，默认 1.0。")
-    parser.add_argument("--fall-weight", type=float, default=1.0, help="Fall 样本训练权重，默认 1.0。")
-    parser.add_argument("--prefall-weight", type=float, default=1.0, help="Pre-fall 样本训练权重，默认 1.0。")
+    parser.add_argument("--random-state", type=int, default=42, help="Random seed for reproducible splitting and training.")
+    parser.add_argument("--normal-weight", type=float, default=1.0, help="Training weight for Normal samples.")
+    parser.add_argument("--fall-weight", type=float, default=1.0, help="Training weight for Fall samples.")
+    parser.add_argument("--prefall-weight", type=float, default=1.0, help="Training weight for Pre-fall samples.")
     parser.add_argument(
         "--tune-prefall-alert-threshold",
         action="store_true",
-        help="在验证集上搜索 Pre-fall 报警阈值，并保存到模型 artifact。",
+        help="Tune the Pre-fall alert threshold on validation data and store it in the model artifact.",
     )
     parser.add_argument(
         "--prefall-threshold-beta",
         type=float,
         default=1.5,
-        help="搜索 Pre-fall 报警阈值时使用的 F-beta beta 值，默认 1.5，更偏召回。",
+        help="F-beta beta used to tune the Pre-fall alert threshold.",
     )
     parser.add_argument(
         "--prefall-alert-threshold",
         type=float,
         default=None,
-        help="直接写入模型的 Pre-fall 报警概率阈值；适合全量训练时沿用验证实验得到的阈值。",
+        help="Store an explicit Pre-fall probability threshold when training on the full dataset.",
     )
     parser.add_argument(
         "--use-accel",
         action="store_true",
-        help="启用加速度增强特征 (torso_angular_accel, vertical_accel)。",
+        help="Enable acceleration features (torso_angular_accel and vertical_accel).",
+    )
+    parser.add_argument(
+        "--use-standing-calibration",
+        action="store_true",
+        help="Calibrate angle, scale, and motion features against each sequence's initial standing pose.",
+    )
+    parser.add_argument(
+        "--partial-pose-augmentation",
+        action="store_true",
+        help="Simulate torso, center, bounding-box, and short temporal occlusions during training.",
+    )
+    parser.add_argument(
+        "--use-upper-body-features",
+        action="store_true",
+        help="Add shoulder-center, shoulder-rotation, and upper-body bounding-box features.",
     )
     args = parser.parse_args()
+    if args.partial_pose_augmentation and not args.use_standing_calibration:
+        parser.error("--partial-pose-augmentation requires --use-standing-calibration")
+    if args.use_upper_body_features and not args.use_standing_calibration:
+        parser.error("--use-upper-body-features requires --use-standing-calibration")
 
-    # 收集训练用 CSV。可以来自命令行显式传入，也可以来自 --input-dir。
+
     csv_paths = collect_csv_paths(args.csv_paths, args.input_dir)
     if not csv_paths:
-        raise RuntimeError("没有找到特征 CSV 文件。请先运行 export_dataset_features.py 导出特征。")
+        raise RuntimeError("No feature CSV files found. Run export_dataset_features.py first.")
 
-    # 把逐帧 CSV 切成"滑动窗口样本"：
-    # X 是模型输入，每一项是一段窗口展开后的数字特征；
-    # y 是标签，例如 Normal / Fall / Pre-fall；
-    # groups 记录样本来自哪个视频，用于按视频划分训练集和验证集。
+
     dataset = build_window_dataset(
         csv_paths=csv_paths,
         window_size=args.window_size,
@@ -149,11 +146,15 @@ def main() -> None:
         label_mode=args.label_mode,
         annotations_path=args.annotations,
         use_accel=args.use_accel,
+        use_standing_calibration=args.use_standing_calibration,
+        partial_pose_augmentation=args.partial_pose_augmentation,
+        baseline_frames=args.baseline_frames,
+        use_upper_body_features=args.use_upper_body_features,
     )
     if not dataset.X:
-        raise RuntimeError("没有生成训练窗口。请检查标签、窗口大小和 CSV 文件内容。")
+        raise RuntimeError("No training windows were generated. Check the labels, window size, and CSV contents.")
 
-    # 真正训练模型，并把模型与必要元数据一起保存。
+
     train_and_save(
         X=dataset.X,
         y=dataset.y,
@@ -179,21 +180,27 @@ def main() -> None:
         prefall_threshold_beta=args.prefall_threshold_beta,
         prefall_alert_threshold=args.prefall_alert_threshold,
         use_accel=args.use_accel,
+        saved_feature_columns=(
+            UPPER_BODY_ACCEL_FEATURE_COLUMNS
+            if args.use_upper_body_features and args.use_accel
+            else UPPER_BODY_ML_FEATURE_COLUMNS
+            if args.use_upper_body_features
+            else ROBUST_ACCEL_FEATURE_COLUMNS
+            if args.use_standing_calibration and args.use_accel
+            else ROBUST_ML_FEATURE_COLUMNS
+            if args.use_standing_calibration
+            else ACCEL_FEATURE_COLUMNS
+            if args.use_accel
+            else ML_FEATURE_COLUMNS
+        ),
+        use_standing_calibration=args.use_standing_calibration,
+        partial_pose_augmentation=args.partial_pose_augmentation,
+        use_upper_body_features=args.use_upper_body_features,
     )
 
 
 def collect_csv_paths(paths: list[str], input_dir: str | None) -> list[Path]:
-    """
-    收集所有训练 CSV 文件。
 
-    paths:
-        命令行中直接写出的文件路径，例如 outputs/features/urfall_yolo/fall-01-cam0.csv。
-
-    input_dir:
-        一个目录路径。如果提供，就递归读取里面所有 .csv 文件。
-
-    返回值去重并排序，是为了让同一批数据每次训练时顺序稳定。
-    """
     csv_paths = [Path(path) for path in paths]
     if input_dir:
         csv_paths.extend(sorted(Path(input_dir).rglob("*.csv")))
@@ -221,48 +228,30 @@ def train_and_save(
     prefall_threshold_beta: float = 1.5,
     prefall_alert_threshold: float | None = None,
     use_accel: bool = False,
+    saved_feature_columns: Sequence[str] | None = None,
+    use_standing_calibration: bool = False,
+    partial_pose_augmentation: bool = False,
+    use_upper_body_features: bool = False,
 ) -> dict[str, Any]:
-    """
-    训练分类器并保存模型文件。
 
-    这里先使用 scikit-learn 的传统机器学习模型，而不是一上来就用 LSTM/Transformer，原因是：
-    1. 当前输入是手工提取的数值特征，树模型很适合这种表格数据；
-    2. UR Fall 这类数据集规模不算特别大，复杂深度模型容易过拟合；
-    3. 这些模型训练快，适合先验证整条流程是否跑通。
 
-    当前可选分类器：
-    - random_forest: 随机森林，稳定、抗噪声，默认选择
-    - extra_trees: 极端随机树，随机性更强，有时泛化更好
-    - gradient_boosting: 梯度提升树，逐步修正错误，常常能挤出一点准确率
-    - hist_gradient_boosting: 直方图梯度提升，速度快，适合更大数据
-
-    保存的不是裸模型，而是一个 artifact 字典，里面包含：
-    - model: 训练好的 scikit-learn 模型
-    - window_size: 推理时必须使用同样长度的窗口
-    - feature_columns: 推理时必须使用同样顺序的特征列
-    - training_videos: 记录训练用过哪些 CSV，方便以后排查
-    """
-    # 这些依赖只在训练时需要，所以放在函数内部导入。
-    # 这样用户只是运行规则版预测时，不会因为没装 sklearn 就导入失败。
     try:
         import joblib
         import numpy as np
         from sklearn.metrics import classification_report
     except ImportError as exc:
         raise RuntimeError(
-            "训练机器学习模型需要 numpy、scikit-learn 和 joblib。"
-            "请先运行：python -m pip install -r requirements.txt"
+            "Training requires numpy, scikit-learn, and joblib. "
+            "Install them with: python -m pip install -r requirements.txt"
         ) from exc
 
-    # scikit-learn 通常使用 numpy 数组作为输入。
-    # X_array 的形状大致是：[样本数, 每个窗口展开后的特征数]。
+
     X_array = np.asarray(X, dtype=float)
     y_array = np.asarray(y)
     groups_array = np.asarray(groups)
 
-    # 注意：验证集按"视频"划分，而不是按"窗口"随机划分。
-    # 如果同一个视频的相邻窗口同时出现在训练集和验证集，模型会看到高度相似的数据，
-    # 验证分数会虚高，看起来很准，实际换新视频可能不准。
+
+    # Split by video group so overlapping windows cannot leak across train and validation.
     train_index, test_index = _group_train_test_split(
         y_array=y_array,
         groups_array=groups_array,
@@ -270,7 +259,7 @@ def train_and_save(
         random_state=random_state,
     )
 
-    # 根据命令行参数创建模型。把这一步单独抽出来，方便后续比较不同模型。
+
     model = create_classifier(classifier_name, random_state)
     sample_weight = build_sample_weights(y_array[train_index], class_weights)
     if sample_weight is None:
@@ -278,11 +267,11 @@ def train_and_save(
     else:
         model.fit(X_array[train_index], y_array[train_index], sample_weight=sample_weight)
 
-    print(f"训练样本数: {len(train_index)}")
-    print(f"分类器: {classifier_name}")
+    print(f"Training samples: {len(train_index)}")
+    print(f"Classifier: {classifier_name}")
     if sample_weight is not None:
-        print(f"样本权重: {normalized_class_weights(class_weights)}")
-    print(f"类别: {', '.join(str(label) for label in model.classes_)}")
+        print(f"Sample weights: {normalized_class_weights(class_weights)}")
+    print(f"Classes: {', '.join(str(label) for label in model.classes_)}")
 
     validation_metrics = None
     prefall_alert_threshold_search = None
@@ -302,17 +291,17 @@ def train_and_save(
                 probabilities=probabilities,
                 beta=prefall_threshold_beta,
             )
-        print("\n验证集报告:")
+        print("\nValidation report:")
         print(classification_report(y_array[test_index], predictions, zero_division=0))
         if prefall_alert_threshold_search is not None and prefall_alert_threshold_search.get("best") is not None:
             best = prefall_alert_threshold_search["best"]
             print(
-                "\nPre-fall 报警阈值搜索:"
+                "\nPre-fall alert threshold search:"
                 f" threshold={best['threshold']:.2f}, precision={best['precision']:.3f},"
                 f" recall={best['recall']:.3f}, f_beta={best['f_beta']:.3f}"
             )
     else:
-        print("\n跳过验证：视频数量或类别数量不足，无法按视频分组划分验证集。")
+        print("\nValidation skipped: too few videos or classes for a group-wise split.")
 
     created_at = datetime.now().isoformat(timespec="seconds")
     validation_split = build_validation_split_summary(
@@ -322,9 +311,9 @@ def train_and_save(
         test_index=test_index,
     )
 
-    # 把训练时的关键设置一起保存。推理时必须保持特征顺序、窗口长度一致，
-    # 否则模型接收到的数字含义会错位，预测结果就没有意义。
-    saved_feature_columns = ACCEL_FEATURE_COLUMNS if use_accel else ML_FEATURE_COLUMNS
+
+    if saved_feature_columns is None:
+        saved_feature_columns = ACCEL_FEATURE_COLUMNS if use_accel else ML_FEATURE_COLUMNS
     artifact = {
         "model": model,
         "window_size": window_size,
@@ -345,6 +334,9 @@ def train_and_save(
         "validation_metrics": validation_metrics,
         "prefall_alert_threshold_search": prefall_alert_threshold_search,
         "use_accel": bool(use_accel),
+        "use_standing_calibration": bool(use_standing_calibration),
+        "partial_pose_augmentation": bool(partial_pose_augmentation),
+        "use_upper_body_features": bool(use_upper_body_features),
     }
     explicit_prefall_alert_threshold = normalize_probability_threshold(prefall_alert_threshold)
     if prefall_alert_threshold_search is not None and prefall_alert_threshold_search.get("best") is not None:
@@ -356,7 +348,7 @@ def train_and_save(
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(artifact, output)
-    print(f"\n模型已保存: {output}")
+    print(f"\nModel saved to: {output}")
 
     metrics_output = Path(metrics_output_path) if metrics_output_path else default_metrics_output_path(output)
     write_metrics_report(
@@ -379,9 +371,12 @@ def train_and_save(
             prefall_alert_threshold_search=prefall_alert_threshold_search,
             prefall_alert_threshold=artifact.get("prefall_alert_threshold"),
             use_accel=use_accel,
+            use_standing_calibration=use_standing_calibration,
+            partial_pose_augmentation=partial_pose_augmentation,
+            use_upper_body_features=use_upper_body_features,
         ),
     )
-    print(f"验证指标已保存: {metrics_output}")
+    print(f"Validation metrics saved to: {metrics_output}")
     return artifact
 
 
@@ -578,6 +573,9 @@ def build_metrics_report(
     prefall_alert_threshold_search: dict[str, Any] | None,
     prefall_alert_threshold: float | None = None,
     use_accel: bool = False,
+    use_standing_calibration: bool = False,
+    partial_pose_augmentation: bool = False,
+    use_upper_body_features: bool = False,
 ) -> dict[str, Any]:
     """Create the standalone metrics report written next to the model."""
     return {
@@ -594,6 +592,9 @@ def build_metrics_report(
         "training_videos": [str(path) for path in csv_paths],
         "class_weights": class_weights,
         "use_accel": bool(use_accel),
+        "use_standing_calibration": bool(use_standing_calibration),
+        "partial_pose_augmentation": bool(partial_pose_augmentation),
+        "use_upper_body_features": bool(use_upper_body_features),
         "validation_split": validation_split,
         "validation_metrics": validation_metrics,
         "prefall_alert_threshold_search": prefall_alert_threshold_search,
@@ -623,11 +624,7 @@ def json_ready(value: Any) -> Any:
 
 
 def create_classifier(classifier_name: str, random_state: int):
-    """
-    根据名称创建 scikit-learn 分类器。
 
-    这里统一设置 random_state，是为了让同一份数据、同一组参数下的结果尽量可复现。
-    """
     from sklearn.ensemble import (
         ExtraTreesClassifier,
         GradientBoostingClassifier,
@@ -636,7 +633,7 @@ def create_classifier(classifier_name: str, random_state: int):
     )
 
     if classifier_name == "random_forest":
-        # 随机森林由很多棵决策树投票组成。class_weight="balanced" 用来缓解类别不平衡。
+
         return RandomForestClassifier(
             n_estimators=300,
             class_weight="balanced",
@@ -645,7 +642,7 @@ def create_classifier(classifier_name: str, random_state: int):
         )
 
     if classifier_name == "extra_trees":
-        # ExtraTrees 比随机森林更随机，训练也很快，有时能降低过拟合。
+
         return ExtraTreesClassifier(
             n_estimators=500,
             class_weight="balanced",
@@ -654,32 +651,18 @@ def create_classifier(classifier_name: str, random_state: int):
         )
 
     if classifier_name == "gradient_boosting":
-        # GradientBoosting 会一轮轮修正前一轮的错误，通常比随机森林更"精细"，但训练更慢。
+
         return GradientBoostingClassifier(random_state=random_state)
 
     if classifier_name == "hist_gradient_boosting":
-        # 直方图版本的梯度提升，适合数据量更大时使用。
+
         return HistGradientBoostingClassifier(random_state=random_state)
 
-    raise ValueError(f"未知分类器: {classifier_name}")
+    raise ValueError(f"Unknown classifier: {classifier_name}")
 
 
 def _group_train_test_split(y_array, groups_array, test_size: float, random_state: int):
-    """
-    按视频分组划分训练集和验证集。
 
-    y_array:
-        每个窗口样本的标签。
-
-    groups_array:
-        每个窗口来自哪个视频。例如同一个 fall-01-cam0.csv 切出的所有窗口，
-        group 都是 fall-01-cam0。
-
-    为什么要分组？
-        一个视频切出的连续窗口非常相似。如果随机按窗口切分，训练集可能包含
-        第 0-29 帧，验证集包含第 5-34 帧，这等于让模型在验证时见过几乎一样的
-        动作片段，评估结果会过于乐观。
-    """
     import numpy as np
     from sklearn.model_selection import GroupShuffleSplit
 
@@ -692,14 +675,11 @@ def _group_train_test_split(y_array, groups_array, test_size: float, random_stat
     unique_groups = np.unique(groups_array)
     unique_labels = np.unique(y_array)
 
-    # 至少需要 2 个视频、2 个类别，才有意义划分训练/验证。
-    # 数据太少时就全部用于训练，先把流程跑通。
+
     if len(unique_groups) < 2 or len(unique_labels) < 2:
         return all_indices, np.asarray([], dtype=int)
 
-    # 多尝试几种随机分组，优先选择训练集和验证集都包含全部类别的划分。
-    # 这对小数据集很重要：例如现在只有 2 个 Fall 视频、4 个 ADL 视频，
-    # 如果只随机一次，验证集可能刚好全是 Normal，看不到模型对 Fall 的效果。
+
     splitter = GroupShuffleSplit(n_splits=100, test_size=test_size, random_state=random_state)
     fallback_split = None
     for train_index, test_index in splitter.split(all_indices, y_array, groups_array):
@@ -710,8 +690,7 @@ def _group_train_test_split(y_array, groups_array, test_size: float, random_stat
         if set(train_labels) == set(unique_labels) and set(test_labels) == set(unique_labels):
             return train_index, test_index
 
-    # 如果数据太少，实在找不到"训练/验证都包含全部类别"的划分，
-    # 就退回到至少训练集包含多个类别的划分；否则全部用于训练，不做验证。
+
     if fallback_split is not None:
         return fallback_split
     return all_indices, np.asarray([], dtype=int)

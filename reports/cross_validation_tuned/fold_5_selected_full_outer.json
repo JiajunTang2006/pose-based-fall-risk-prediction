@@ -1,0 +1,429 @@
+{
+  "best_epoch": 45,
+  "class_weights": {
+    "Fall": 1.0,
+    "Normal": 1.0,
+    "Pre-fall": 2.0
+  },
+  "comparisons": null,
+  "created_at": "2026-07-21T17:58:12",
+  "feature_csv_paths": [
+    "outputs/features/upfall_yolo/Subject1Activity1Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity1Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity1Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity1Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity1Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity1Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity2Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity2Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity2Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity2Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity2Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity2Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity3Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity3Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity3Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity3Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity3Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity3Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity4Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity4Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity4Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity4Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject1Activity4Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject1Activity4Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity1Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity1Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity1Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity1Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity1Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity1Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity2Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity2Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity2Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity2Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity2Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity2Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity3Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity3Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity3Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity3Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity3Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity3Trial3Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity4Trial1Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity4Trial1Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity4Trial2Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity4Trial2Camera2.csv",
+    "outputs/features/upfall_yolo/Subject2Activity4Trial3Camera1.csv",
+    "outputs/features/upfall_yolo/Subject2Activity4Trial3Camera2.csv",
+    "outputs/features/urfall_yolo/adl-01-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-02-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-03-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-04-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-05-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-06-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-07-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-08-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-09-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-10-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-12-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-13-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-14-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-15-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-16-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-17-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-18-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-19-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-20-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-21-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-22-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-23-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-24-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-25-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-26-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-27-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-28-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-29-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-30-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-31-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-32-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-33-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-34-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-35-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-36-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-37-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-38-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-39-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/adl-40-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-01-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-02-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-03-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-04-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-05-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-06-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-07-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-08-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-09-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-10-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-11-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-12-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-13-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-14-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-15-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-16-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-17-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-18-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-19-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-20-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-21-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-22-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-23-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-24-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-25-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-26-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-27-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-28-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-29-cam0-rgb.csv",
+    "outputs/features/urfall_yolo/fall-30-cam0-rgb.csv"
+  ],
+  "landmark_dirs": [
+    "outputs/landmarks_upperbody/urfall_yolo",
+    "outputs/landmarks_upperbody/upfall_yolo"
+  ],
+  "model": "small_stgcn_feature_tcn",
+  "model_config": {
+    "dropout": 0.3,
+    "feature_count": 13,
+    "graph_channels": [
+      16,
+      32,
+      32
+    ],
+    "mode": "fusion",
+    "num_classes": 3,
+    "skeleton_channels": 5,
+    "temporal_channels": [
+      32,
+      32
+    ]
+  },
+  "prefall_alert_threshold": 0.29,
+  "prefall_alert_threshold_search": null,
+  "prefall_recall_floor": 0.8,
+  "probability_calibration": null,
+  "probability_temperature": 1.3285117244910059,
+  "random_state": 47,
+  "stride": 3,
+  "test_size": 0.0,
+  "total_samples": 3745,
+  "training_history": [
+    {
+      "epoch": 1,
+      "train_loss": 1.789026353451534
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.7499775229054236
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.6456003077994679
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.5594050198674043
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.5180164222246177
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.4913937397888092
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.45387718194476434
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.44926658774886497
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.4442444402162478
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.39988818768665535
+    },
+    {
+      "epoch": 11,
+      "train_loss": 0.38422205499081175
+    },
+    {
+      "epoch": 12,
+      "train_loss": 0.3594151167191555
+    },
+    {
+      "epoch": 13,
+      "train_loss": 0.3717884983653538
+    },
+    {
+      "epoch": 14,
+      "train_loss": 0.3624009525346183
+    },
+    {
+      "epoch": 15,
+      "train_loss": 0.3280439748385242
+    },
+    {
+      "epoch": 16,
+      "train_loss": 0.3392189129649877
+    },
+    {
+      "epoch": 17,
+      "train_loss": 0.33480965951892816
+    },
+    {
+      "epoch": 18,
+      "train_loss": 0.3099943691563702
+    },
+    {
+      "epoch": 19,
+      "train_loss": 0.30761690141362086
+    },
+    {
+      "epoch": 20,
+      "train_loss": 0.2912012140884578
+    },
+    {
+      "epoch": 21,
+      "train_loss": 0.28128914354799267
+    },
+    {
+      "epoch": 22,
+      "train_loss": 0.28654412972592863
+    },
+    {
+      "epoch": 23,
+      "train_loss": 0.27854064767446635
+    },
+    {
+      "epoch": 24,
+      "train_loss": 0.2618924913721505
+    },
+    {
+      "epoch": 25,
+      "train_loss": 0.2760184431505776
+    },
+    {
+      "epoch": 26,
+      "train_loss": 0.25755834870726785
+    },
+    {
+      "epoch": 27,
+      "train_loss": 0.2624431237518708
+    },
+    {
+      "epoch": 28,
+      "train_loss": 0.245518013858827
+    },
+    {
+      "epoch": 29,
+      "train_loss": 0.2552483857155483
+    },
+    {
+      "epoch": 30,
+      "train_loss": 0.24509304099789608
+    },
+    {
+      "epoch": 31,
+      "train_loss": 0.23606259185020054
+    },
+    {
+      "epoch": 32,
+      "train_loss": 0.21730819490945866
+    },
+    {
+      "epoch": 33,
+      "train_loss": 0.23463907237444445
+    },
+    {
+      "epoch": 34,
+      "train_loss": 0.22259643127587195
+    },
+    {
+      "epoch": 35,
+      "train_loss": 0.22151325998780566
+    },
+    {
+      "epoch": 36,
+      "train_loss": 0.21470598693046775
+    },
+    {
+      "epoch": 37,
+      "train_loss": 0.21618053359246858
+    },
+    {
+      "epoch": 38,
+      "train_loss": 0.21466512888948494
+    },
+    {
+      "epoch": 39,
+      "train_loss": 0.2119917963988313
+    },
+    {
+      "epoch": 40,
+      "train_loss": 0.19982514421596068
+    },
+    {
+      "epoch": 41,
+      "train_loss": 0.2019977097278921
+    },
+    {
+      "epoch": 42,
+      "train_loss": 0.1978130666193402
+    },
+    {
+      "epoch": 43,
+      "train_loss": 0.20721888112448883
+    },
+    {
+      "epoch": 44,
+      "train_loss": 0.20358630960710217
+    },
+    {
+      "epoch": 45,
+      "train_loss": 0.196903563958303
+    }
+  ],
+  "validation_metrics": null,
+  "validation_split": {
+    "train_groups": [
+      "adl-01-cam0-rgb",
+      "adl-02-cam0-rgb",
+      "adl-03-cam0-rgb",
+      "adl-05-cam0-rgb",
+      "adl-06-cam0-rgb",
+      "adl-07-cam0-rgb",
+      "adl-09-cam0-rgb",
+      "adl-13-cam0-rgb",
+      "adl-14-cam0-rgb",
+      "adl-15-cam0-rgb",
+      "adl-16-cam0-rgb",
+      "adl-17-cam0-rgb",
+      "adl-18-cam0-rgb",
+      "adl-19-cam0-rgb",
+      "adl-20-cam0-rgb",
+      "adl-21-cam0-rgb",
+      "adl-22-cam0-rgb",
+      "adl-23-cam0-rgb",
+      "adl-25-cam0-rgb",
+      "adl-26-cam0-rgb",
+      "adl-27-cam0-rgb",
+      "adl-28-cam0-rgb",
+      "adl-29-cam0-rgb",
+      "adl-30-cam0-rgb",
+      "adl-33-cam0-rgb",
+      "adl-34-cam0-rgb",
+      "adl-35-cam0-rgb",
+      "adl-36-cam0-rgb",
+      "adl-37-cam0-rgb",
+      "adl-38-cam0-rgb",
+      "adl-39-cam0-rgb",
+      "fall-01-cam0-rgb",
+      "fall-03-cam0-rgb",
+      "fall-04-cam0-rgb",
+      "fall-05-cam0-rgb",
+      "fall-06-cam0-rgb",
+      "fall-07-cam0-rgb",
+      "fall-08-cam0-rgb",
+      "fall-09-cam0-rgb",
+      "fall-10-cam0-rgb",
+      "fall-12-cam0-rgb",
+      "fall-13-cam0-rgb",
+      "fall-14-cam0-rgb",
+      "fall-16-cam0-rgb",
+      "fall-17-cam0-rgb",
+      "fall-20-cam0-rgb",
+      "fall-22-cam0-rgb",
+      "fall-23-cam0-rgb",
+      "fall-24-cam0-rgb",
+      "fall-25-cam0-rgb",
+      "fall-26-cam0-rgb",
+      "fall-27-cam0-rgb",
+      "fall-28-cam0-rgb",
+      "fall-30-cam0-rgb",
+      "subject1activity1trial1",
+      "subject1activity1trial2",
+      "subject1activity1trial3",
+      "subject1activity2trial2",
+      "subject1activity2trial3",
+      "subject1activity3trial1",
+      "subject1activity3trial2",
+      "subject1activity3trial3",
+      "subject1activity4trial1",
+      "subject1activity4trial2",
+      "subject2activity1trial1",
+      "subject2activity1trial3",
+      "subject2activity2trial1",
+      "subject2activity2trial3",
+      "subject2activity3trial2",
+      "subject2activity3trial3",
+      "subject2activity4trial1",
+      "subject2activity4trial2",
+      "subject2activity4trial3"
+    ],
+    "train_label_counts": {
+      "Fall": 1007,
+      "Normal": 2403,
+      "Pre-fall": 335
+    },
+    "train_samples": 3745,
+    "validation_groups": [],
+    "validation_label_counts": {},
+    "validation_samples": 0
+  },
+  "window_size": 15
+}

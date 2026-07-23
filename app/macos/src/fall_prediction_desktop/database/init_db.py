@@ -43,13 +43,13 @@ def default_data_dir(app_root: Path) -> Path:
     return user_data_dir()
 
 
-def init_app_database(app_root: Path) -> "AppRepositories":
+def init_app_database(app_root: Path, data_dir: Path | None = None) -> "AppRepositories":
     """Initialize the SQLite database and return all repository instances.
 
     Called once at application startup.  Creates the database file and
     default profile if this is the first run.
     """
-    data_dir = default_data_dir(app_root)
+    data_dir = data_dir or default_data_dir(app_root)
     db_path = data_dir / DB_FILENAME
     schema_path = Path(__file__).resolve().parent / "schema.sql"
 

@@ -415,6 +415,7 @@ class MediaImportProcessor:
         self.upload_dir = self.output_dir / "sources"
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
+        self._capture = None
         self._snapshot = MediaJobSnapshot()
         self._repos = None  # AppRepositories — attached by the application bootstrap
 
@@ -572,7 +573,7 @@ class MediaImportProcessor:
                     source_type=media_kind,
                     source_path=str(source_path),
                     pose_backend="yolo",
-                    predictor_type="ml",
+                    predictor_type="ensemble",
                 )
                 session_id = session["id"]
                 from .frame_pipeline import FrameBusinessProcessor
@@ -617,16 +618,19 @@ class MediaImportProcessor:
                     source=str(source_path),
                     output_dir=target_dir,
                     pose_backend="yolo",
-                    predictor="ml",
+                    predictor="ensemble",
                     sensitivity=self._current_sensitivity(),
                     yolo_model_path=Path("models/yolo26n-pose.pt"),
-                    classifier_model_path=Path("models/yolo_tail60_prefall_accel_upperbody_classifier.joblib"),
+                    classifier_model_path=Path("models/yolo_tail60_prefall_accel_robust_classifier.joblib"),
+                    fusion_model_path=Path("models/skeleton_feature_fusion_tuned.pt"),
                     write_csv=False,
                     write_video=True,
                     show_preview=False,
                     use_hmm=True,
                     use_accel=True,
-                    use_temporal_fall_validation=True,
+                    use_temporal_fall_validation=False,
+                    fusion_fall_confirmation_steps=3,
+                    use_static_lying_adl_filter=True,
                     image_fps=30.0,
                 ),
                 log=self._handle_job_log,
@@ -1014,16 +1018,19 @@ class CameraMonitor:
 
         ml_config = ml_config_for_sensitivity(sensitivity)
         return create_predictor(
-            predictor_type="ml",
-            classifier_model_path=self.app_root / "models" / "yolo_tail60_prefall_accel_upperbody_classifier.joblib",
+            predictor_type="ensemble",
+            classifier_model_path=self.app_root / "models" / "yolo_tail60_prefall_accel_robust_classifier.joblib",
+            fusion_model_path=self.app_root / "models" / "skeleton_feature_fusion_tuned.pt",
             predictor_config=predictor_config_for_sensitivity(sensitivity),
             prefall_alert_threshold=ml_config.prefall_alert_threshold,
             prefall_alert_frames=ml_config.prefall_alert_frames,
             use_hmm=True,
             use_accel=True,
-            use_temporal_fall_validation=True,
+            use_temporal_fall_validation=False,
             fall_validator_settings=ml_config.fall_validator_settings,
             temporal_sensitivity=sensitivity,
+            fusion_fall_confirmation_steps=3,
+            use_static_lying_adl_filter=True,
         )
 
     def start(self) -> None:
@@ -1059,7 +1066,7 @@ class CameraMonitor:
                     profile_id=profile_id,
                     source_type="camera",
                     pose_backend="yolo",
-                    predictor_type="ml",
+                    predictor_type="ensemble",
                 )
                 self._session_id = sess["id"]
                 self._debug_log("start", f"DB session created: {self._session_id[:12]}...")
@@ -1078,7 +1085,20 @@ class CameraMonitor:
             and worker.is_alive()
             and worker is not threading.current_thread()
         ):
-            worker.join(timeout=5.0)
+            worker.join(timeout=2.0)
+            if worker.is_alive():
+                # Unblock a driver-level capture.read() that did not observe
+                # the stop event promptly, then wait for the finally block.
+                with self._lock:
+                    capture = self._capture
+                if capture is not None:
+                    try:
+                        capture.release()
+                    except Exception:
+                        pass
+                worker.join(timeout=3.0)
+        with self._lock:
+            self._jpeg_frame = None
 
     def preload_models(self) -> None:
         with self._lock:
@@ -1094,7 +1114,8 @@ class CameraMonitor:
             from fall_prediction.pose import preload_yolo_model
 
             preload_yolo_model(self.app_root / "models" / "yolo26n-pose.pt", warmup=True)
-            load_model_artifact(self.app_root / "models" / "yolo_tail60_prefall_accel_upperbody_classifier.joblib")
+            load_model_artifact(self.app_root / "models" / "yolo_tail60_prefall_accel_robust_classifier.joblib")
+            load_model_artifact(self.app_root / "models" / "skeleton_feature_fusion_tuned.pt")
         except Exception as exc:
             with self._lock:
                 self._preload_error = str(exc)
@@ -1191,6 +1212,8 @@ class CameraMonitor:
                 camera_idx = self.settings.camera_index
                 self._debug_log("_run_camera_loop", f"opening camera index={camera_idx}...")
                 capture = open_camera_capture(camera_idx)
+                with self._lock:
+                    self._capture = capture
                 self._debug_log("_run_camera_loop", "camera opened successfully")
             except CameraOpenError as exc:
                 if exc.permission and not exc.permission.allowed:
@@ -1345,6 +1368,9 @@ class CameraMonitor:
             except Exception:
                 pass
             with self._lock:
+                self._capture = None
+                self._jpeg_frame = None
+            with self._lock:
                 has_error = bool(self._snapshot.error)
             if not has_error:
                 self._add_activity("normal", "Monitoring stopped", self._snapshot.risk_percent)
@@ -1357,6 +1383,8 @@ class CameraMonitor:
                     title="Ready",
                     detail="Click Start Monitoring to begin.",
                     fps=0.0,
+                    risk_percent=0,
+                    confidence_percent=0,
                     environment="Waiting",
                 )
 
@@ -1524,7 +1552,7 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
             "thresholds": s.thresholds(),
             "theme": s.theme,
             "lang": s.lang,
-            "version": getattr(self.server, "app_version", "0.2.0"),
+            "version": getattr(self.server, "app_version", "0.3.3"),
         })
 
     def _handle_get_cameras(self) -> None:
@@ -2068,7 +2096,7 @@ class FallGuardServer(ThreadingHTTPServer):
         self.video_processor = media_processor
         self.settings = settings
         self.app_root = app_root
-        self.app_version = "0.2.0"
+        self.app_version = "0.3.3"
         self.profile_manager = profile_manager
         self.base_url = f"http://{address[0]}:{address[1]}"
 
@@ -2243,7 +2271,7 @@ def main_native(argv: list[str] | None = None) -> None:
         app_root=app_root,
         locales_dir=locales_dir,
         assets_dir=assets_root,
-        app_version="0.2.0",
+        app_version="0.3.3",
         repos=repos,
     )
     if not app_icon.isNull():

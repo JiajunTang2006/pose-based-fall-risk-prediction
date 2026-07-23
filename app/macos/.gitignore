@@ -6,10 +6,18 @@ __pycache__/
 .pyinstaller/
 build/
 dist/
+release/
+native/FallGuard/.build/
 outputs/
 data/
+src/*.egg-info/
 
 fallguard_settings.json
 profiles.json
+*.db
+*.sqlite
+*.sqlite3
+*.app
+*.dmg
 
 *.log

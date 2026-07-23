@@ -20,6 +20,9 @@ dependencies = [
 yolo = [
     "ultralytics>=8.4",
 ]
+deep = [
+    "torch>=2.2",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",

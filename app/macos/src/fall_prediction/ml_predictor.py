@@ -84,6 +84,7 @@ class TemporalSensitivityProfile:
     stable_normal_frames: int
     normal_memory: int
     prefall_memory: int
+    fall_probability_threshold: float
     fall_window: int
     fall_confirm_count: int
     fall_hold_frames: int
@@ -102,6 +103,10 @@ TEMPORAL_SENSITIVITY_PROFILES = {
         stable_normal_frames=1,
         normal_memory=30,
         prefall_memory=20,
+        # Keep the already well-performing high profile on its original
+        # classifier/HMM Fall transition; the probability fallback targets the
+        # observed medium-profile argmax tie problem.
+        fall_probability_threshold=1.00,
         fall_window=2,
         fall_confirm_count=1,
         fall_hold_frames=15,
@@ -116,6 +121,7 @@ TEMPORAL_SENSITIVITY_PROFILES = {
         stable_normal_frames=1,
         normal_memory=20,
         prefall_memory=15,
+        fall_probability_threshold=0.45,
         fall_window=3,
         fall_confirm_count=2,
         fall_hold_frames=20,
@@ -130,6 +136,9 @@ TEMPORAL_SENSITIVITY_PROFILES = {
         stable_normal_frames=1,
         normal_memory=15,
         prefall_memory=10,
+        # Keep low conservative until real-scene low-sensitivity samples are
+        # available; a 0.50 fallback reduced offline Fall event detection.
+        fall_probability_threshold=1.00,
         fall_window=4,
         fall_confirm_count=3,
         fall_hold_frames=30,
@@ -397,7 +406,20 @@ class TemporalSequenceGate:
             and motion.center_drop_delta < DEFAULT_CONTROLLED_UPRIGHT_CENTER_DROP_DELTA
         )
 
-        raw_fall = not controlled_upright and (state == "Fall" or alert_state == "Fall")
+        # The classifier/HMM can remain on Pre-fall when Fall is a close second
+        # (or tied because of smoothing).  Requiring Fall to win the argmax made
+        # a sustained ~50% Fall probability invisible to the sequence vote,
+        # especially in the medium profile.  Treat a profile-specific Fall
+        # probability as a candidate too; the existing Normal -> Pre-fall
+        # history and multi-window vote still have to confirm the event.
+        classified_fall = state == "Fall" or alert_state == "Fall"
+        probability_fall_candidate = (
+            not controlled_upright
+            and self.profile.fall_probability_threshold < 1.0
+            and self._internal_state == "Pre-fall"
+            and fall_probability >= self.profile.fall_probability_threshold
+        )
+        raw_fall = not controlled_upright and (classified_fall or probability_fall_candidate)
         # 当前已经是 Fall 的窗口不能反过来充当它自己的 Pre-fall 历史。
         # Pre-fall 必须来自严格更早的独立窗口。
         raw_prefall = (
@@ -458,6 +480,13 @@ class TemporalSequenceGate:
                 self._prefall_age = 0
                 self._internal_state = "Fall"
                 return "Fall", "Fall"
+            # A probability-only candidate is deliberately weaker than a
+            # classifier/HMM Fall.  Keep the already-confirmed warning visible
+            # while its multi-window Fall vote accumulates; dropping back to
+            # Normal here would prevent medium/low candidates from persisting.
+            if probability_fall_candidate and not classified_fall:
+                self._internal_state = "Pre-fall"
+                return "Pre-fall", "Pre-fall"
             if warm_start_signal or self._prefall_is_confirmed():
                 self._internal_state = "Pre-fall"
                 return "Pre-fall", "Pre-fall"
@@ -716,6 +745,7 @@ class MachineLearningFallPredictor:
 
         # 这些设置必须和训练时一致，否则模型输入的含义会错位。
         self.model = artifact["model"]
+        self._requires_skeleton = bool(artifact.get("requires_skeleton", False))
         self.window_size = int(artifact.get("window_size", DEFAULT_WINDOW_SIZE))
         self.feature_columns = tuple(artifact.get("feature_columns", ML_FEATURE_COLUMNS))
         self.baseline_frames = _resolve_positive_int_setting(
@@ -751,6 +781,7 @@ class MachineLearningFallPredictor:
         # 非常适合做实时滑动窗口。
         self._window: deque[dict[str, float]] = deque(maxlen=self.window_size)
         self._raw_window: deque[dict[str, float]] = deque(maxlen=self.window_size)
+        self._skeleton_window: deque[np.ndarray] = deque(maxlen=self.window_size)
         self._missing_pose_count = 0
         self._uncalibrated_non_upright_count = 0
 
@@ -828,6 +859,13 @@ class MachineLearningFallPredictor:
     ) -> Prediction:
         # 1. 把当前帧关键点转换成可解释的数值特征。
         features = self.extractor.extract(landmarks, frame_index, timestamp)
+        if self._requires_skeleton:
+            from .skeleton_dataset import landmarks_to_skeleton_frame
+
+            previous_skeleton = self._skeleton_window[-1] if self._skeleton_window else None
+            self._skeleton_window.append(
+                landmarks_to_skeleton_frame(landmarks, previous_frame=previous_skeleton)
+            )
 
         # 2. 更新站立基线，并计算当前身体中心相对基线下降了多少。
         center_drop = self._update_baseline_and_center_drop(features)
@@ -974,6 +1012,10 @@ class MachineLearningFallPredictor:
             )
         feature_cols = self.feature_columns
         sample = [flatten_window(window_list, feature_cols)]
+        if self._requires_skeleton:
+            if len(self._skeleton_window) < self.window_size:
+                raise RuntimeError("Skeleton window is shorter than the model feature window")
+            self.model.set_skeleton_window(np.stack(tuple(self._skeleton_window), axis=1))
         model_state, risk_score, model_alert_state = self._predict_sample(sample)
         should_update_gate = (
             self._last_temporal_gate_frame is None
@@ -1009,6 +1051,7 @@ class MachineLearningFallPredictor:
         self.extractor.reset()
         self._window.clear()
         self._raw_window.clear()
+        self._skeleton_window.clear()
         self._risk_history.clear()
         self._baseline_samples.clear()
         self._baseline_center_y = None
@@ -1215,6 +1258,19 @@ def load_model_artifact(model_path: str | Path) -> dict:
     - 如果加载出来是 dict，就按 train_model.py 保存的 artifact 使用；
     - 如果加载出来不是 dict，就当作旧格式裸模型，并补默认元数据。
     """
+    model_path = Path(model_path)
+    if model_path.suffix.lower() in {".pt", ".pth"}:
+        from .deep_model import load_deep_model_artifact
+        from .fusion_model import load_fusion_model_artifact
+
+        try:
+            return load_deep_model_artifact(model_path)
+        except RuntimeError as deep_error:
+            try:
+                return load_fusion_model_artifact(model_path)
+            except RuntimeError:
+                raise deep_error
+
     try:
         import joblib
     except ImportError as exc:

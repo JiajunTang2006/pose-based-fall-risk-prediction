@@ -1,9 +1,4 @@
-"""
-姿态后端适配层的单元测试。
 
-这里主要测试 YOLO COCO 17 点到项目内部 MediaPipe 33 点格式的映射。
-测试不依赖 ultralytics 或真实模型文件，所以在普通测试环境里也能稳定运行。
-"""
 
 import unittest
 

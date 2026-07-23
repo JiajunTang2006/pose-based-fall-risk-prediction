@@ -1,0 +1,230 @@
+/*
+ 中文前端文字文件（应用切换到中文时使用）
+
+ 修改方法：只修改等号右侧引号内的中文，左侧的 key 不要改。
+ 示例："events.refresh" = "刷新"; 只可修改第二个 "刷新"。
+ 注意：请保留 %d、%@、%% 等占位符，以及每行末尾的分号。
+ 页面与代码文件的完整对照见 native/FallGuard/FRONTEND_TEXT_GUIDE.md。
+*/
+
+/* 左侧导航栏：监控面板、事件记录、导入媒体、用户档案 */
+"tab.dashboard" = "监控面板";
+"tab.events" = "事件记录";
+"tab.import_media" = "导入媒体";
+"tab.profiles" = "用户档案";
+
+/* 左侧顶部品牌区，以及默认档案名称 */
+"profile.default" = "默认";
+
+/* 监控面板首页：启动、错误和就绪卡片 */
+"dashboard.launching" = "正在启动 FallGuard…";
+"dashboard.error.title" = "服务异常";
+"dashboard.retry" = "重试";
+"dashboard.ready" = "已就绪";
+"dashboard.start_monitoring" = "开始监控";
+"dashboard.loading.camera" = "正在启动摄像头…";
+"dashboard.stopping" = "正在停止…";
+"dashboard.importing" = "正在导入媒体…";
+
+/* 监控面板工作状态：实时画面、风险卡片、趋势图和空状态文字 */
+"dashboard.live_monitor" = "实时监控";
+"dashboard.risk_prediction" = "风险预测";
+"dashboard.system_status" = "系统状态";
+"dashboard.risk_trend" = "风险趋势";
+"dashboard.last_60s" = "最近 60 秒";
+"dashboard.no_data" = "暂无数据";
+"dashboard.recent_events" = "最近事件";
+"dashboard.no_events" = "暂无记录";
+"dashboard.placeholder" = "摄像头画面将显示在此处";
+"dashboard.placeholder_sub" = "点击「开始监控」打开摄像头";
+
+/* 监控面板风险等级 */
+"risk.low" = "低风险";
+"risk.medium" = "中风险";
+"risk.high" = "高风险";
+
+/* 监控面板状态标签和系统状态卡片 */
+"status.safe" = "一切正常";
+"status.warning" = "警告";
+"status.danger" = "危险";
+"status.unknown" = "待命中";
+"status.idle_detail" = "当前未在监控";
+"status.camera" = "摄像头";
+"status.model" = "检测模型";
+"status.confidence" = "置信度";
+"status.environment" = "运行状态";
+"status.connected" = "已连接";
+"status.idle" = "空闲";
+"status.loading" = "加载中";
+"status.active" = "运行中";
+"status.monitoring" = "监控中";
+"status.standby" = "待命";
+
+/* 监控面板统计指标 */
+"metric.monitor_time" = "监控时长";
+"metric.total_alerts" = "总警报";
+"metric.high_risk" = "高风险";
+"metric.avg_risk" = "平均风险";
+"metric.version" = "版本";
+
+/* 主窗口最顶部的开始 / 停止按钮 */
+"button.start" = "开始";
+"button.stop" = "停止";
+
+/* 检测结果状态 */
+"state.normal" = "正常";
+"state.prefall" = "预跌倒";
+"state.fall" = "跌倒";
+"state.unknown" = "未知";
+
+/* 主窗口顶部左侧的服务连接状态 */
+"service.stopped" = "已停止";
+"service.starting" = "启动中…";
+"service.ready" = "已连接";
+"service.stopping" = "停止中…";
+
+/* 事件记录页面：标题、刷新、筛选栏、空状态和事件类型 */
+"events.title" = "事件记录";
+"events.refresh" = "刷新";
+"events.empty" = "暂无事件记录。开始监控后将自动检测跌倒事件。";
+"events.count" = "%d 个事件";
+"events.copy_id" = "复制事件 ID";
+"events.filter.all" = "全部类型";
+"events.filter.fall" = "跌倒";
+"events.filter.prefall" = "预跌倒";
+"events.filter.all_status" = "全部状态";
+"events.filter.open" = "进行中";
+"events.filter.resolved" = "已解决";
+"event.type.fall" = "检测到跌倒";
+"event.type.prefall" = "预跌倒警告";
+
+/* 导入媒体页面：文件选择、处理进度和结果文字 */
+"import.title" = "导入媒体";
+"import.select_files" = "选择媒体文件";
+"import.supported_formats" = "支持格式：MP4、MOV、AVI、MKV、WEBM、PNG、JPG、HEIC";
+"import.choose_video" = "选择视频";
+"import.choose_folder" = "选择图片文件夹";
+"import.selected" = "已选文件";
+"import.clear" = "清空";
+"import.start" = "开始导入";
+"import.complete" = "导入完成";
+"import.output" = "输出：";
+"import.new" = "新建导入";
+"import.failed" = "导入失败";
+"import.retry" = "重试";
+"import.processing" = "正在处理媒体…";
+"import.cancel" = "取消";
+"import.panel.message" = "选择要分析的视频或图片文件。";
+"import.panel.select" = "选择";
+"import.panel.folder.message" = "选择包含图片的文件夹。";
+
+/* 用户档案页面：创建、激活、删除弹窗和统计文字 */
+"profiles.title" = "用户档案";
+"profiles.create" = "创建档案";
+"profiles.empty" = "暂无档案，创建一个开始使用吧。";
+"profiles.count" = "%d 个档案";
+"profiles.name_placeholder" = "档案名称";
+"profiles.create_button" = "创建";
+"profiles.create_message" = "输入新档案的名称。";
+"profiles.activate" = "激活";
+"profiles.active_label" = "使用中";
+"profiles.delete" = "删除";
+"profiles.delete_title" = "删除档案？";
+"profiles.delete_message" = "确定要删除「%@」吗？此操作无法撤销。";
+"profiles.fall_count" = "%d 次跌倒";
+
+/* 设置窗口：左侧栏目及通用 / 检测 / 提醒 / 数据 / 关于内容 */
+"settings.title" = "设置";
+"settings.tab.general" = "通用";
+"settings.tab.detection" = "检测";
+"settings.tab.alerts" = "提醒";
+"settings.tab.data" = "数据";
+"settings.tab.about" = "关于";
+"settings.tab.appearance" = "外观";
+"settings.camera" = "摄像头";
+"settings.camera_index" = "摄像头序号";
+"settings.camera_note" = "更改监控摄像头。重启监控后生效。";
+"settings.sensitivity" = "灵敏度";
+"settings.sensitivity_level" = "检测灵敏度";
+"settings.notifications" = "通知";
+"settings.sound_alert" = "检测到跌倒时播放警报声";
+"settings.sound_note" = "检测到跌倒时将播放系统提示音。";
+"settings.appearance" = "外观";
+"settings.theme" = "主题";
+"settings.language" = "语言";
+"settings.version" = "版本 %@";
+"settings.api_version" = "API 版本";
+"settings.service" = "服务状态";
+"settings.copyright" = "Copyright © 2025 FallGuard. All rights reserved.";
+"settings.data_management" = "数据管理";
+"settings.export_logs" = "导出日志";
+"settings.export_logs_detail" = "将诊断日志保存为 JSON 文件。";
+"settings.clear_history" = "清除历史";
+"settings.clear_history_detail" = "删除所有事件记录和监控数据。";
+"settings.open_data" = "打开数据文件夹";
+"settings.open_data_detail" = "在 Finder 中打开应用数据目录。";
+
+/* 设置 > 外观：主题选项 */
+"theme.system" = "跟随系统";
+"theme.light" = "浅色";
+"theme.dark" = "深色";
+
+/* 设置 > 检测：灵敏度选项 */
+"sensitivity.low" = "低";
+"sensitivity.medium" = "中";
+"sensitivity.high" = "高";
+
+/* macOS 屏幕最顶部系统菜单：文件、编辑、显示、窗口、帮助等 */
+"menu.about" = "关于 FallGuard";
+"menu.about_format" = "关于 %@";
+"menu.file" = "文件";
+"menu.edit" = "编辑";
+"menu.view" = "显示";
+"menu.window" = "窗口";
+"menu.help" = "帮助";
+"menu.preferences" = "偏好设置…";
+"menu.quit" = "退出 FallGuard";
+"menu.start_monitoring" = "开始监控";
+"menu.stop_monitoring" = "停止监控";
+"menu.import_media" = "导入媒体…";
+"menu.toggle_sidebar" = "显示或隐藏侧边栏";
+"menu.show_main_window" = "显示主窗口";
+"menu.diagnostics" = "诊断…";
+"menu.export_logs" = "导出日志…";
+
+/* macOS 菜单栏中的 FallGuard 小图标菜单 */
+"menubar.status" = "状态";
+"menubar.status.idle" = "空闲";
+"menubar.status.monitoring" = "监控中 · 风险 %d%%";
+"menubar.show" = "显示 FallGuard";
+"menubar.start" = "开始监控";
+"menubar.stop" = "停止监控";
+"menubar.settings" = "设置…";
+"menubar.quit" = "退出 FallGuard";
+
+/* macOS 系统通知：跌倒和预跌倒提醒 */
+"notification.fall.title" = "检测到跌倒";
+"notification.fall.body" = "检测到可能的跌倒事件（风险：%d%%），请立即查看。";
+"notification.prefall.title" = "预跌倒警告";
+"notification.prefall.body" = "检测到不稳定动作（风险：%d%%），请留意。";
+
+/* 退出程序等确认弹窗 */
+"alert.quit.monitoring.title" = "监控仍在运行";
+"alert.quit.monitoring.message" = "退出 FallGuard 将停止当前监控。";
+"alert.cancel" = "取消";
+"alert.quit.button" = "退出";
+
+/* 服务启动、连接及导入失败时的错误提示 */
+"error.service.timeout" = "后台服务启动超时。";
+"error.service.early_exit" = "后台服务在发送就绪消息前已退出。";
+"error.service.invalid_ready" = "后台服务发送了无法识别的启动消息。";
+"error.service.health_failed" = "后台服务健康检查失败：%@";
+"error.service.crashed" = "后台服务在启动期间崩溃。";
+"error.service.unexpected_exit" = "后台服务意外停止。";
+"error.connection.lost" = "与后台服务的连接已断开。";
+"error.startup.cancelled" = "后台服务启动已取消。";
+"error.import.stop_monitoring" = "导入媒体前请先停止监控。";
+
+/* 多个页面共用的通用按钮文字 */
+"cancel" = "取消";
+"delete" = "删除";

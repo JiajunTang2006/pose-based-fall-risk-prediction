@@ -48,7 +48,7 @@ def _load_json_mapping(config_path: str | Path) -> Mapping[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, Mapping):
-        raise ValueError(f"配置文件顶层必须是 JSON object: {path}")
+        raise ValueError(f"The configuration root must be a JSON object: {path}")
     return data
 
 
@@ -57,7 +57,7 @@ def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ValueError(f"配置项 {name!r} 必须是 JSON object。")
+        raise ValueError(f"Configuration entry {name!r} must be a JSON object.")
     return value
 
 

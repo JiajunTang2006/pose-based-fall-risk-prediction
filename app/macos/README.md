@@ -1,16 +1,15 @@
-# FallGuard — Native macOS Desktop App
+# FallGuard — SwiftUI + Python macOS App
 
-FallGuard 是一个完全独立的 macOS 桌面应用，使用 AI 驱动的跌倒检测技术，通过摄像头实时监测人体姿态，
-在跌倒发生时及时预警。
+FallGuard 是一个完全本地运行的 macOS 跌倒检测应用。SwiftUI 负责原生界面与系统集成，
+Python 子进程负责摄像头、YOLO、风险判断、SQLite 和媒体处理。
 
-## 为什么这样设计
+## 架构
 
-- 使用 HTML/CSS/JavaScript 做前端界面，接近真实软件产品。
-- 使用 Python 做本机后端，负责摄像头、YOLO 和跌倒预测。
-- 视频不会上传外网，只在本机 `127.0.0.1` 页面中显示。
-- **默认使用 pywebview 打开原生 macOS 桌面窗口**（不需要浏览器）。
-- **完全自包含，不依赖外部项目** —— 所有代码和模型都在本目录内。
-- 可以先用 `launch.command` 双击运行，后面再用 `build_app.sh` 打包成 `.app`。
+- `native/FallGuard/`：SwiftUI/AppKit 原生应用。
+- `src/fall_prediction_service/`：仅监听 `127.0.0.1`、带随机令牌的本地 API。
+- `src/fall_prediction/`：姿态估计与跌倒预测算法。
+- `src/fall_prediction_desktop/`：数据库、事件、媒体和业务状态机。
+- 视频和预测结果不会上传外网。
 
 ## 快速开始
 
@@ -23,34 +22,34 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e "."
 
-# 3. 启动桌面应用
-./launch.command
+# 3. 编译并运行开发版
+./native/generate_xcode_project.sh run
 ```
 
-或者在 Finder 里双击 `launch.command`，会打开一个**原生 macOS 桌面窗口**。
+开发运行会自动使用 `.venv/bin/fallguard-ai`。也可以单独运行服务进行协议调试。
 
 ## 启动选项
 
 | 命令 | 效果 |
 |------|------|
-| `python -m fall_prediction_desktop` | **默认** — 原生桌面窗口 |
-| `python -m fall_prediction_desktop --menubar` | 以菜单栏应用运行 |
-| `python -m fall_prediction_desktop --connect http://127.0.0.1:8765/` | 连接到已运行的本地监控服务 |
+| `python -m fall_prediction_service --port 0` | 启动无界面本地 AI 服务 |
+| `./native/generate_xcode_project.sh run` | 编译并启动 SwiftUI 开发版 |
 | `python -m fall_prediction --source video.mp4 --pose-backend yolo --predictor ml --output-video annotated.mp4` | 命令行处理视频/图片序列 |
 
 ## 目录结构
 
 ```
 macos/
+├── native/FallGuard/              # SwiftUI 原生界面
 ├── src/
-│   ├── fall_prediction_desktop/   # 产品层（窗口、数据库、事件、通知、媒体与任务编排）
-│   └── fall_prediction/           # 实验算法层（姿态识别、特征、模型与跌倒预测）
-├── web/                           # 前端 UI（HTML/CSS/JS）
+│   ├── fall_prediction_service/   # 本地认证 API 与进程协议
+│   ├── fall_prediction_desktop/   # 数据库、事件与媒体业务层
+│   └── fall_prediction/           # 算法层
 ├── models/                        # AI 模型文件
 ├── assets/                        # 图标和应用资源
 ├── configs/                       # 配置文件
-├── launch.command                 # 双击启动
-├── build_app.sh                   # 打包 .app
+├── fallguard_ai.spec              # AI 服务冻结配置
+├── build_native_app.sh            # 完整 .app 构建与签名
 └── pyproject.toml                 # 依赖配置
 ```
 
@@ -103,20 +102,18 @@ Camera 和 Import Media 都通过 `FrameBusinessProcessor` 消费统一的 `Pred
 
 把设计好的图标保存为 `assets/FallGuard.png`（建议 `1024x1024` PNG）。
 
-pywebview 模式下会自动读取这个 PNG 作为窗口图标；打包 `.app` 时，`build_app.sh` 会生成并使用 `FallGuard.icns`。
+SwiftUI 应用使用 `assets/FallGuard.icns` 作为 App 图标；可用现有图标脚本从 PNG 重新生成。
 
 ## 打包成 .app
 
 ```bash
-./build_app.sh
+./build_native_app.sh
 ```
 
-构建结果在 `dist/FallGuard.app`，可以像普通 macOS 应用一样双击打开、拖入 Applications 文件夹。
-
-构建脚本默认不会覆盖桌面上的旧版本。确认构建成功后，如需自动复制到桌面，可运行：
+构建结果在 `release/FallGuard.app`。默认执行 ad-hoc 本机签名；如已安装 Developer ID 证书：
 
 ```bash
-DEPLOY_TO_DESKTOP=1 ./build_app.sh
+CODE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build_native_app.sh
 ```
 
 ## 数据存储
@@ -145,6 +142,6 @@ DEPLOY_TO_DESKTOP=1 ./build_app.sh
 
 如果摄像头打不开：
 
-- 在“系统设置 > 隐私与安全性 > 摄像头”中允许 FallGuard；如果用 `launch.command` 启动，也请允许 Terminal 或 Python。
+- 在“系统设置 > 隐私与安全性 > 摄像头”中允许 FallGuard；源码开发运行时也可能需要允许 Terminal。
 - 关闭 FaceTime、Zoom、浏览器会议等可能正在占用摄像头的软件。
-- 使用打包版本时，请打开 `dist/FallGuard.app`，不要直接运行 `dist/FallGuard/FallGuard` 里的内部可执行文件。
+- 使用打包版本时，请打开 `release/FallGuard.app`，不要直接运行包内的 AI 服务可执行文件。

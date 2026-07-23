@@ -43,6 +43,14 @@ from .ml_features import (
     make_window_feature_names,
     compute_window_accel_features,
 )
+from .robustness import (
+    ROBUST_ACCEL_FEATURE_COLUMNS,
+    ROBUST_ML_FEATURE_COLUMNS,
+    UPPER_BODY_ACCEL_FEATURE_COLUMNS,
+    UPPER_BODY_ML_FEATURE_COLUMNS,
+    apply_partial_pose_dropout,
+    calibrate_feature_rows,
+)
 
 
 DEFAULT_WINDOW_SIZE = 15
@@ -91,6 +99,10 @@ def build_window_dataset(
     label_mode: str = "filename",
     annotations_path: str | Path | Sequence[str | Path] | None = None,
     use_accel: bool = False,
+    use_standing_calibration: bool = False,
+    partial_pose_augmentation: bool = False,
+    baseline_frames: int = 15,
+    use_upper_body_features: bool = False,
 ) -> WindowDataset:
     """
     读取多个特征 CSV，并生成展开后的滑动窗口样本。
@@ -130,9 +142,18 @@ def build_window_dataset(
     if label_mode == "annotations" and annotations_path is None:
         raise ValueError("annotations_path is required when label_mode='annotations'")
 
-    # 如果启用加速度，使用增强特征列
-    if use_accel:
-        feature_columns = ACCEL_FEATURE_COLUMNS
+    if use_upper_body_features:
+        base_feature_columns = UPPER_BODY_ML_FEATURE_COLUMNS
+        feature_columns = (
+            UPPER_BODY_ACCEL_FEATURE_COLUMNS if use_accel else UPPER_BODY_ML_FEATURE_COLUMNS
+        )
+    elif use_standing_calibration:
+        base_feature_columns = ROBUST_ML_FEATURE_COLUMNS
+        feature_columns = ROBUST_ACCEL_FEATURE_COLUMNS if use_accel else ROBUST_ML_FEATURE_COLUMNS
+    else:
+        base_feature_columns = ML_FEATURE_COLUMNS
+        if use_accel:
+            feature_columns = ACCEL_FEATURE_COLUMNS
 
     intervals = load_label_intervals(annotations_path) if annotations_path else {}
     X: list[list[float]] = []
@@ -142,6 +163,8 @@ def build_window_dataset(
     for csv_path in sorted(Path(path) for path in csv_paths):
         # 每个 rows 元素是一帧，字段来自 video_app.py 的 CSV_COLUMNS。
         rows = load_feature_rows(csv_path)
+        if use_standing_calibration or use_upper_body_features:
+            rows, _baseline = calibrate_feature_rows(rows, baseline_frames=baseline_frames)
         if len(rows) < window_size:
             continue
 
@@ -166,15 +189,26 @@ def build_window_dataset(
             if label is None:
                 continue
 
-            # 如果启用加速度，为窗口每帧计算二阶导数特征
-            if use_accel:
-                window_rows = compute_window_accel_features(window_rows)
+            variants: list[Sequence[Mapping[str, object]]] = [window_rows]
+            if (use_standing_calibration or use_upper_body_features) and partial_pose_augmentation:
+                patterns = ["torso", "center", "bbox", "temporal"]
+                if use_upper_body_features:
+                    patterns.extend(("lower_body", "upper_body"))
+                variants.extend(
+                    apply_partial_pose_dropout(window_rows, pattern)
+                    for pattern in patterns
+                )
 
-            # flatten_window 会把多帧二维结构展开成一维数字向量，
-            # 这是 scikit-learn 表格模型最常见的输入形式。
-            X.append(flatten_window(window_rows, feature_columns))
-            y.append(label)
-            groups.append(video_key)
+            for variant in variants:
+                prepared_rows = list(variant)
+                if use_accel:
+                    prepared_rows = compute_window_accel_features(
+                        prepared_rows,
+                        base_feature_columns=base_feature_columns,
+                    )
+                X.append(flatten_window(prepared_rows, feature_columns))
+                y.append(label)
+                groups.append(video_key)
 
     return WindowDataset(
         X=X,
@@ -276,6 +310,37 @@ def _label_for_window(
 
     # ADL/normal 视频通常整段都是正常动作，可以不手动标注。
     return "Normal" if file_label == "Normal" else None
+
+
+def boundary_distance_for_frame(
+    csv_path: str | Path,
+    video_key: str,
+    frame: int,
+    intervals: Mapping[str, Sequence[LabelInterval]],
+) -> int | None:
+    """Return distance in source frames to the nearest true label transition.
+
+    The first interval is not a transition.  A boundary is the first frame of
+    a new interval whose label differs from the preceding interval.  ADL files
+    without interval annotations therefore return ``None``.
+    """
+    path = Path(csv_path)
+    matched: Sequence[LabelInterval] = ()
+    for key in _annotation_keys(path, video_key):
+        if intervals.get(key):
+            matched = intervals[key]
+            break
+    if len(matched) < 2:
+        return None
+    ordered = sorted(matched, key=lambda item: (item.start_frame, item.end_frame))
+    boundaries = [
+        current.start_frame
+        for previous, current in zip(ordered, ordered[1:])
+        if previous.label != current.label
+    ]
+    if not boundaries:
+        return None
+    return min(abs(int(frame) - boundary) for boundary in boundaries)
 
 
 def _annotation_keys(csv_path: Path, video_key: str) -> tuple[str, ...]:

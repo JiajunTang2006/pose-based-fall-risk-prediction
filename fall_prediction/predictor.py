@@ -62,6 +62,8 @@ class Prediction:
         breakdown:          风险分数的详细分解
         baseline_center_y:  站立时的身体中心 Y 坐标（用于计算身体下降量）
         alert_state:        推理阶段报警状态；可以比分类状态更敏感
+        advisory_state:     双模型的低级别辅助提示；不等同于正式报警
+        decision_tier:      双模型分级判断的置信层级
     """
     frame_index: int
     timestamp: float
@@ -73,6 +75,9 @@ class Prediction:
     breakdown: RiskBreakdown
     baseline_center_y: float | None
     alert_state: str | None = None
+    system_status: str | None = None
+    advisory_state: str | None = None
+    decision_tier: str | None = None
 
 
 class FallPredictor:
@@ -142,7 +147,7 @@ class FallPredictor:
 
         # ---- 第二步：建立基线（仅在前 N 帧进行）----
         # 在收集够 baseline_frames 帧之前，不计算 center_drop
-        if features.has_pose and self._baseline_center_y is None:
+        if features.center_valid and self._baseline_center_y is None:
             self._baseline_samples.append(features.body_center_y)
             if len(self._baseline_samples) >= self.config.baseline_frames:
                 # 收集够了！计算这些帧的身体中心平均值作为"正常站立"的基线

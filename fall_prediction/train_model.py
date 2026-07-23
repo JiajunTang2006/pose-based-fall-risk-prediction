@@ -32,10 +32,16 @@ import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .ml_features import ACCEL_FEATURE_COLUMNS, ML_FEATURE_COLUMNS
 from .predictor import PredictorConfig
+from .robustness import (
+    ROBUST_ACCEL_FEATURE_COLUMNS,
+    ROBUST_ML_FEATURE_COLUMNS,
+    UPPER_BODY_ACCEL_FEATURE_COLUMNS,
+    UPPER_BODY_ML_FEATURE_COLUMNS,
+)
 from .window_dataset import DEFAULT_STRIDE, DEFAULT_WINDOW_SIZE, build_window_dataset
 
 
@@ -130,7 +136,26 @@ def main() -> None:
         action="store_true",
         help="启用加速度增强特征 (torso_angular_accel, vertical_accel)。",
     )
+    parser.add_argument(
+        "--use-standing-calibration",
+        action="store_true",
+        help="把每个视频映射为相对初始站立姿态的角度、尺度和运动特征。",
+    )
+    parser.add_argument(
+        "--partial-pose-augmentation",
+        action="store_true",
+        help="训练时模拟躯干/中心/人体框及短时序缺失；需要 --use-standing-calibration。",
+    )
+    parser.add_argument(
+        "--use-upper-body-features",
+        action="store_true",
+        help="加入肩中心、肩线旋转和上半身框特征，并训练纯上半身遮挡样本。",
+    )
     args = parser.parse_args()
+    if args.partial_pose_augmentation and not args.use_standing_calibration:
+        parser.error("--partial-pose-augmentation requires --use-standing-calibration")
+    if args.use_upper_body_features and not args.use_standing_calibration:
+        parser.error("--use-upper-body-features requires --use-standing-calibration")
 
     # 收集训练用 CSV。可以来自命令行显式传入，也可以来自 --input-dir。
     csv_paths = collect_csv_paths(args.csv_paths, args.input_dir)
@@ -149,6 +174,10 @@ def main() -> None:
         label_mode=args.label_mode,
         annotations_path=args.annotations,
         use_accel=args.use_accel,
+        use_standing_calibration=args.use_standing_calibration,
+        partial_pose_augmentation=args.partial_pose_augmentation,
+        baseline_frames=args.baseline_frames,
+        use_upper_body_features=args.use_upper_body_features,
     )
     if not dataset.X:
         raise RuntimeError("没有生成训练窗口。请检查标签、窗口大小和 CSV 文件内容。")
@@ -179,6 +208,22 @@ def main() -> None:
         prefall_threshold_beta=args.prefall_threshold_beta,
         prefall_alert_threshold=args.prefall_alert_threshold,
         use_accel=args.use_accel,
+        saved_feature_columns=(
+            UPPER_BODY_ACCEL_FEATURE_COLUMNS
+            if args.use_upper_body_features and args.use_accel
+            else UPPER_BODY_ML_FEATURE_COLUMNS
+            if args.use_upper_body_features
+            else ROBUST_ACCEL_FEATURE_COLUMNS
+            if args.use_standing_calibration and args.use_accel
+            else ROBUST_ML_FEATURE_COLUMNS
+            if args.use_standing_calibration
+            else ACCEL_FEATURE_COLUMNS
+            if args.use_accel
+            else ML_FEATURE_COLUMNS
+        ),
+        use_standing_calibration=args.use_standing_calibration,
+        partial_pose_augmentation=args.partial_pose_augmentation,
+        use_upper_body_features=args.use_upper_body_features,
     )
 
 
@@ -221,6 +266,10 @@ def train_and_save(
     prefall_threshold_beta: float = 1.5,
     prefall_alert_threshold: float | None = None,
     use_accel: bool = False,
+    saved_feature_columns: Sequence[str] | None = None,
+    use_standing_calibration: bool = False,
+    partial_pose_augmentation: bool = False,
+    use_upper_body_features: bool = False,
 ) -> dict[str, Any]:
     """
     训练分类器并保存模型文件。
@@ -324,7 +373,8 @@ def train_and_save(
 
     # 把训练时的关键设置一起保存。推理时必须保持特征顺序、窗口长度一致，
     # 否则模型接收到的数字含义会错位，预测结果就没有意义。
-    saved_feature_columns = ACCEL_FEATURE_COLUMNS if use_accel else ML_FEATURE_COLUMNS
+    if saved_feature_columns is None:
+        saved_feature_columns = ACCEL_FEATURE_COLUMNS if use_accel else ML_FEATURE_COLUMNS
     artifact = {
         "model": model,
         "window_size": window_size,
@@ -345,6 +395,9 @@ def train_and_save(
         "validation_metrics": validation_metrics,
         "prefall_alert_threshold_search": prefall_alert_threshold_search,
         "use_accel": bool(use_accel),
+        "use_standing_calibration": bool(use_standing_calibration),
+        "partial_pose_augmentation": bool(partial_pose_augmentation),
+        "use_upper_body_features": bool(use_upper_body_features),
     }
     explicit_prefall_alert_threshold = normalize_probability_threshold(prefall_alert_threshold)
     if prefall_alert_threshold_search is not None and prefall_alert_threshold_search.get("best") is not None:
@@ -379,6 +432,9 @@ def train_and_save(
             prefall_alert_threshold_search=prefall_alert_threshold_search,
             prefall_alert_threshold=artifact.get("prefall_alert_threshold"),
             use_accel=use_accel,
+            use_standing_calibration=use_standing_calibration,
+            partial_pose_augmentation=partial_pose_augmentation,
+            use_upper_body_features=use_upper_body_features,
         ),
     )
     print(f"验证指标已保存: {metrics_output}")
@@ -578,6 +634,9 @@ def build_metrics_report(
     prefall_alert_threshold_search: dict[str, Any] | None,
     prefall_alert_threshold: float | None = None,
     use_accel: bool = False,
+    use_standing_calibration: bool = False,
+    partial_pose_augmentation: bool = False,
+    use_upper_body_features: bool = False,
 ) -> dict[str, Any]:
     """Create the standalone metrics report written next to the model."""
     return {
@@ -594,6 +653,9 @@ def build_metrics_report(
         "training_videos": [str(path) for path in csv_paths],
         "class_weights": class_weights,
         "use_accel": bool(use_accel),
+        "use_standing_calibration": bool(use_standing_calibration),
+        "partial_pose_augmentation": bool(partial_pose_augmentation),
+        "use_upper_body_features": bool(use_upper_body_features),
         "validation_split": validation_split,
         "validation_metrics": validation_metrics,
         "prefall_alert_threshold_search": prefall_alert_threshold_search,

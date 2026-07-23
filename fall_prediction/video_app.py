@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import load_predictor_config
+from .landmarks import LANDMARK_COUNT
 from .pose import MediaPipePoseEstimator, YOLOPoseEstimator, draw_person_box
 from .predictor import FallPredictor, PredictorConfig
 
@@ -50,6 +51,8 @@ CSV_COLUMNS = (
     "time",                   # 时间（秒）
     "state",                  # 最终状态（Normal/Pre-fall/Fall/Unknown）
     "alert_state",            # 报警状态；ML 模型可比 state 更早触发 Pre-fall
+    "advisory_state",         # 双模型低级别辅助提示，不等同于正式报警
+    "decision_tier",          # 双模型的分级判断层级
     "instant_state",          # 瞬时状态（未平滑）
     "risk_score",             # 瞬时风险分数
     "smoothed_risk_score",    # 平滑后的风险分数
@@ -64,6 +67,28 @@ CSV_COLUMNS = (
     "body_height",            # 人体包围盒高度
     "visibility_mean",        # 平均可见度
     "center_drop",            # 身体中心下降量
+    "system_status",          # 校准/运行状态说明
+    "torso_signed_angle",     # 带方向躯干角，供固定站立校准
+    "torso_valid",            # 躯干关键点是否完整可靠
+    "center_valid",           # 身体中心特征是否可靠
+    "bbox_valid",             # 可见人体框是否可靠
+    "feature_coverage",       # 上述三组特征的覆盖率
+    "shoulder_center_y",
+    "shoulder_center_delta",
+    "shoulder_vertical_velocity",
+    "shoulder_line_angle",
+    "shoulder_line_angular_velocity",
+    "upper_body_width",
+    "upper_body_height",
+    "upper_body_aspect_ratio",
+    "upper_body_valid",
+    "upper_body_visibility_mean",
+)
+
+LANDMARK_CSV_COLUMNS = ("frame", "time") + tuple(
+    f"kp{index:02d}_{field}"
+    for index in range(LANDMARK_COUNT)
+    for field in ("x", "y", "z", "visibility")
 )
 
 
@@ -77,14 +102,19 @@ def process_video(
     show: bool = False,
     predictor_type: str = "rule",
     classifier_model_path: str | Path | None = None,
+    fusion_model_path: str | Path | None = None,
     prefall_alert_threshold: float | None = None,
     prefall_alert_frames: int | None = None,
     use_hmm: bool = False,
     use_accel: bool | None = None,
     use_temporal_fall_validation: bool = True,
-    temporal_sensitivity: str = "high",
+    temporal_sensitivity: str = "medium",
+    automatic_fall_recovery: bool = False,
+    fusion_fall_confirmation_steps: int = 3,
     image_sequence_fps: float = 30.0,
     predictor_config: PredictorConfig | None = None,
+    output_landmarks_csv: str | Path | None = None,
+    use_static_lying_adl_filter: bool = True,
 ) -> None:
     """
     处理视频或摄像头流，进行跌倒预测。
@@ -100,7 +130,8 @@ def process_video(
         yolo_model_path: YOLO-pose .pt 模型路径
         show:         是否显示实时预览窗口
         predictor_type: "rule" 使用原规则系统，"ml" 使用训练好的机器学习模型
-        classifier_model_path: 机器学习分类器 joblib 模型路径
+        classifier_model_path: 机器学习分类器路径；ensemble 模式下是树模型路径
+        fusion_model_path: ensemble 模式使用的骨架+特征融合模型路径
         image_sequence_fps: 当 source 是图片目录时，假设这组图片的帧率是多少
     """
     import cv2
@@ -114,6 +145,8 @@ def process_video(
     writer = None
     csv_file = None
     csv_writer = None
+    landmarks_file = None
+    landmarks_writer = None
     estimator = None
 
     try:
@@ -144,6 +177,13 @@ def process_video(
             csv_writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS)
             csv_writer.writeheader()  # 写入表头
 
+        if output_landmarks_csv:
+            landmarks_path = Path(output_landmarks_csv)
+            landmarks_path.parent.mkdir(parents=True, exist_ok=True)
+            landmarks_file = landmarks_path.open("w", newline="", encoding="utf-8")
+            landmarks_writer = csv.DictWriter(landmarks_file, fieldnames=LANDMARK_CSV_COLUMNS)
+            landmarks_writer.writeheader()
+
         # ---- 初始化核心模块 ----
         estimator = create_pose_estimator(
             pose_backend=pose_backend,
@@ -154,12 +194,16 @@ def process_video(
             predictor_type,
             classifier_model_path,
             predictor_config,
+            fusion_model_path=fusion_model_path,
             prefall_alert_threshold=prefall_alert_threshold,
             prefall_alert_frames=prefall_alert_frames,
             use_hmm=use_hmm,
             use_accel=use_accel,
             use_temporal_fall_validation=use_temporal_fall_validation,
             temporal_sensitivity=temporal_sensitivity,
+            automatic_fall_recovery=automatic_fall_recovery,
+            fusion_fall_confirmation_steps=fusion_fall_confirmation_steps,
+            use_static_lying_adl_filter=use_static_lying_adl_filter,
         )  # 跌倒预测器
 
         frame_index = 0
@@ -185,6 +229,8 @@ def process_video(
             # ---- 第四步：输出数据 ----
             if csv_writer:
                 csv_writer.writerow(prediction_to_row(prediction))
+            if landmarks_writer:
+                landmarks_writer.writerow(landmarks_to_row(landmarks, frame_index, timestamp))
 
             if writer:
                 writer.write(frame)  # 写入标注后的视频帧
@@ -192,9 +238,12 @@ def process_video(
             # ---- 第五步：显示预览窗口 ----
             if show:
                 cv2.imshow("Fall prediction", frame)
-                # 按 Q 键退出
-                if cv2.waitKey(1) & 0xFF == ord("q"):
+                key = cv2.waitKey(1) & 0xFF
+                # 按 Q 键退出；按 R 键由操作员确认并解除已锁存 Fall。
+                if key == ord("q"):
                     break
+                if key == ord("r") and hasattr(predictor, "acknowledge_fall"):
+                    predictor.acknowledge_fall()
 
             frame_index += 1
     finally:
@@ -207,6 +256,8 @@ def process_video(
             writer.release()    # 关闭视频文件
         if csv_file:
             csv_file.close()    # 关闭 CSV 文件
+        if landmarks_file:
+            landmarks_file.close()
         if show:
             cv2.destroyAllWindows()  # 关闭所有 OpenCV 窗口
 
@@ -228,6 +279,7 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
     import cv2
 
     display_state = prediction.alert_state or prediction.state
+    advisory_state = getattr(prediction, "advisory_state", None)
 
     # 根据报警状态选择文字颜色
     color = {
@@ -236,9 +288,15 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
         "Fall": (0, 80, 255),        # 红色
         "Unknown": (160, 160, 160),  # 灰色
     }.get(display_state, (255, 255, 255))
+    if advisory_state and display_state == "Normal":
+        color = (0, 200, 255) if advisory_state == "Pre-fall" else (0, 120, 255)
 
     # 只保留最关键的信息，避免画面被参数遮住。
     lines = [f"State: {display_state}"]
+    if advisory_state and advisory_state != display_state:
+        lines.append(f"Advisory: {advisory_state}")
+    if prediction.system_status:
+        lines.append(prediction.system_status)
     if display_state != prediction.state:
         lines.insert(1, f"Model: {prediction.state}")
 
@@ -286,6 +344,8 @@ def prediction_to_row(prediction) -> dict[str, str | int]:
         "time": f"{prediction.timestamp:.4f}",
         "state": prediction.state,
         "alert_state": prediction.alert_state or prediction.state,
+        "advisory_state": getattr(prediction, "advisory_state", None) or "",
+        "decision_tier": getattr(prediction, "decision_tier", None) or "",
         "instant_state": prediction.instant_state,
         "risk_score": f"{prediction.risk_score:.4f}",
         "smoothed_risk_score": f"{prediction.smoothed_risk_score:.4f}",
@@ -300,7 +360,37 @@ def prediction_to_row(prediction) -> dict[str, str | int]:
         "body_height": f"{features.body_height:.4f}",
         "visibility_mean": f"{features.visibility_mean:.4f}",
         "center_drop": f"{prediction.breakdown.center_drop:.4f}",
+        "system_status": prediction.system_status or "",
+        "torso_signed_angle": f"{features.torso_signed_angle_deg:.4f}",
+        "torso_valid": int(features.torso_valid),
+        "center_valid": int(features.center_valid),
+        "bbox_valid": int(features.bbox_valid),
+        "feature_coverage": f"{(float(features.torso_valid) + float(features.center_valid) + float(features.bbox_valid)) / 3.0:.4f}",
+        "shoulder_center_y": f"{features.shoulder_center_y:.4f}",
+        "shoulder_center_delta": f"{features.shoulder_center_delta:.4f}",
+        "shoulder_vertical_velocity": f"{features.shoulder_vertical_velocity:.4f}",
+        "shoulder_line_angle": f"{features.shoulder_line_angle_deg:.4f}",
+        "shoulder_line_angular_velocity": f"{features.shoulder_line_angular_velocity:.4f}",
+        "upper_body_width": f"{features.upper_body_width:.4f}",
+        "upper_body_height": f"{features.upper_body_height:.4f}",
+        "upper_body_aspect_ratio": f"{features.upper_body_aspect_ratio:.4f}",
+        "upper_body_valid": int(features.upper_body_valid),
+        "upper_body_visibility_mean": f"{features.upper_body_visibility_mean:.4f}",
     }
+
+
+def landmarks_to_row(landmarks, frame_index: int, timestamp: float) -> dict[str, str | int]:
+    """Serialize all raw keypoints and confidences for future mask-aware training."""
+    row: dict[str, str | int] = {"frame": frame_index, "time": f"{timestamp:.4f}"}
+    for index in range(LANDMARK_COUNT):
+        point = landmarks[index] if landmarks is not None and index < len(landmarks) else None
+        row[f"kp{index:02d}_x"] = f"{point.x:.6f}" if point is not None else "0.000000"
+        row[f"kp{index:02d}_y"] = f"{point.y:.6f}" if point is not None else "0.000000"
+        row[f"kp{index:02d}_z"] = f"{point.z:.6f}" if point is not None else "0.000000"
+        row[f"kp{index:02d}_visibility"] = (
+            f"{point.visibility:.6f}" if point is not None else "0.000000"
+        )
+    return row
 
 
 def create_pose_estimator(
@@ -320,19 +410,48 @@ def create_predictor(
     predictor_type: str,
     classifier_model_path: str | Path | None,
     predictor_config: PredictorConfig | None = None,
+    fusion_model_path: str | Path | None = None,
     prefall_alert_threshold: float | None = None,
     prefall_alert_frames: int | None = None,
     use_hmm: bool = False,
     use_accel: bool | None = None,
     use_temporal_fall_validation: bool = True,
-    temporal_sensitivity: str = "high",
+    temporal_sensitivity: str = "medium",
+    automatic_fall_recovery: bool = False,
+    fusion_fall_confirmation_steps: int = 3,
+    use_static_lying_adl_filter: bool = True,
 ):
     """Create the requested prediction backend."""
     if predictor_type == "rule":
         return FallPredictor(config=predictor_config)
-    if predictor_type == "ml":
+    if predictor_type == "ensemble":
+        from .ensemble_predictor import (
+            DEFAULT_FUSION_MODEL_PATH,
+            DEFAULT_TREE_MODEL_PATH,
+            DualModelFallPredictor,
+        )
+
+        return DualModelFallPredictor(
+            tree_model_path=classifier_model_path or DEFAULT_TREE_MODEL_PATH,
+            fusion_model_path=fusion_model_path or DEFAULT_FUSION_MODEL_PATH,
+            predictor_config=predictor_config,
+            prefall_alert_threshold=prefall_alert_threshold,
+            prefall_alert_consecutive_frames=prefall_alert_frames,
+            fusion_use_hmm=use_hmm,
+            use_accel=use_accel,
+            fusion_fall_confirmation_steps=fusion_fall_confirmation_steps,
+            use_static_lying_adl_filter=use_static_lying_adl_filter,
+        )
+    if predictor_type in {"ml", "deep", "fusion"}:
         if classifier_model_path is None:
-            classifier_model_path = "models/yolo_tail60_prefall_accel_classifier.joblib"
+            classifier_model_path = (
+                "models/skeleton_feature_fusion_tuned.pt"
+                if predictor_type == "fusion"
+                else
+                "models/tcn_prefall_classifier.pt"
+                if predictor_type == "deep"
+                else "models/yolo_tail60_prefall_accel_robust_classifier.joblib"
+            )
         from .ml_predictor import MachineLearningFallPredictor
 
         return MachineLearningFallPredictor(
@@ -350,6 +469,7 @@ def create_predictor(
             use_accel=use_accel,
             use_temporal_fall_validation=use_temporal_fall_validation,
             temporal_sensitivity=temporal_sensitivity,
+            automatic_fall_recovery=automatic_fall_recovery,
         )
     raise ValueError(f"Unknown predictor type: {predictor_type}")
 
@@ -549,6 +669,11 @@ def main() -> None:
         default=None,
         help="CSV output path. Omit this option to disable CSV export.",
     )
+    parser.add_argument(
+        "--output-landmarks-csv",
+        default=None,
+        help="可选：额外保存逐帧完整关键点坐标与置信度，供遮挡增强训练。",
+    )
     parser.add_argument("--output-video", default=None, help="Optional annotated MP4 output path.")
     parser.add_argument("--model", default=None, help="Optional MediaPipe Tasks pose landmarker .task model path.")
     parser.add_argument(
@@ -566,14 +691,22 @@ def main() -> None:
     parser.add_argument("--image-fps", type=float, default=30.0, help="当 --source 是图片目录时使用的帧率，默认 30。")
     parser.add_argument(
         "--predictor",
-        choices=("rule", "ml"),
+        choices=("rule", "ml", "deep", "fusion", "ensemble"),
         default="rule",
-        help="预测后端：rule 使用规则阈值系统，ml 使用训练好的机器学习分类器。",
+        help=(
+            "预测后端：rule规则，ml树模型，deep因果TCN，fusion骨架图网络+TCN，"
+            "ensemble树模型确认+融合模型提前预警。"
+        ),
     )
     parser.add_argument(
         "--classifier-model",
-        default="models/yolo_tail60_prefall_accel_classifier.joblib",
-        help="当 --predictor ml 时加载的 joblib 分类器路径。",
+        default=None,
+        help="ml/deep 分类器路径；ensemble 模式下是树模型路径。",
+    )
+    parser.add_argument(
+        "--fusion-model",
+        default=None,
+        help="ensemble 模式的骨架+特征融合模型路径；省略时使用默认模型。",
     )
     parser.add_argument(
         "--prefall-alert-threshold",
@@ -589,8 +722,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--use-hmm",
-        action="store_true",
-        help="启用 HMM Viterbi 时序平滑，减少状态跳变和单帧误报。",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="是否启用 HMM；deep/fusion/ensemble 默认启用，rule/ml 默认不启用。",
     )
     parser.add_argument(
         "--use-accel",
@@ -600,17 +734,55 @@ def main() -> None:
     parser.add_argument(
         "--disable-temporal-fall-validation",
         action="store_true",
-        help="关闭运行时 Fall 时序确认层，恢复只按模型/HMM 输出判 Fall。",
+        help="关闭运行时 Fall 时序确认层。deep/fusion/ensemble 默认已经关闭。",
+    )
+    parser.add_argument(
+        "--enable-temporal-fall-validation",
+        action="store_true",
+        help="显式开启运行时 Fall 时序确认层；deep/fusion/ensemble 默认关闭以避免重复平滑。",
     )
     parser.add_argument(
         "--sensitivity",
         choices=("high", "medium", "low"),
-        default="high",
+        default="medium",
         help="ML 时序门控敏感度：high 较早提醒，medium 平衡误报，low 最保守。",
+    )
+    parser.add_argument(
+        "--auto-fall-recovery",
+        action="store_true",
+        help="允许在持续可靠直立 Normal 后自动解除 Fall；默认必须按 R 或调用 acknowledge_fall() 人工确认。",
+    )
+    parser.add_argument(
+        "--fusion-fall-confirmation-steps",
+        type=int,
+        default=3,
+        help="ensemble 中仅融合模型判断 Fall 时，需要连续确认的模型输出次数，默认 3。",
+    )
+    parser.add_argument(
+        "--static-lying-adl-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "ensemble 中启用静态躺姿 ADL 后处理（默认启用）；"
+            "可用 --no-static-lying-adl-filter 关闭以比较模型原始输出。"
+        ),
     )
     parser.add_argument("--show", action="store_true", help="Show an OpenCV preview window.")
     args = parser.parse_args()
+    if args.disable_temporal_fall_validation and args.enable_temporal_fall_validation:
+        parser.error("Cannot enable and disable temporal Fall validation at the same time")
     predictor_config = load_predictor_config(args.config) if args.config else None
+    resolved_use_hmm = (
+        args.predictor in {"deep", "fusion", "ensemble"}
+        if args.use_hmm is None
+        else args.use_hmm
+    )
+    if args.enable_temporal_fall_validation:
+        resolved_temporal_validation = True
+    elif args.disable_temporal_fall_validation:
+        resolved_temporal_validation = False
+    else:
+        resolved_temporal_validation = args.predictor not in {"deep", "fusion", "ensemble"}
 
     process_video(
         source=parse_source(args.source),
@@ -622,14 +794,19 @@ def main() -> None:
         show=args.show,
         predictor_type=args.predictor,
         classifier_model_path=args.classifier_model,
+        fusion_model_path=args.fusion_model,
         prefall_alert_threshold=args.prefall_alert_threshold,
         prefall_alert_frames=args.prefall_alert_frames,
-        use_hmm=args.use_hmm,
+        use_hmm=resolved_use_hmm,
         use_accel=args.use_accel if args.use_accel else None,
-        use_temporal_fall_validation=not args.disable_temporal_fall_validation,
+        use_temporal_fall_validation=resolved_temporal_validation,
         temporal_sensitivity=args.sensitivity,
+        automatic_fall_recovery=args.auto_fall_recovery,
+        fusion_fall_confirmation_steps=args.fusion_fall_confirmation_steps,
+        use_static_lying_adl_filter=args.static_lying_adl_filter,
         image_sequence_fps=args.image_fps,
         predictor_config=predictor_config,
+        output_landmarks_csv=args.output_landmarks_csv,
     )
 
 

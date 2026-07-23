@@ -312,6 +312,32 @@ def _label_for_window(
     return "Normal" if file_label == "Normal" else None
 
 
+def boundary_distance_for_frame(
+    csv_path: str | Path,
+    video_key: str,
+    frame: int,
+    intervals: Mapping[str, Sequence[LabelInterval]],
+) -> int | None:
+    """Return the source-frame distance to the nearest label transition."""
+    path = Path(csv_path)
+    matched: Sequence[LabelInterval] = ()
+    for key in _annotation_keys(path, video_key):
+        if intervals.get(key):
+            matched = intervals[key]
+            break
+    if len(matched) < 2:
+        return None
+    ordered = sorted(matched, key=lambda item: (item.start_frame, item.end_frame))
+    boundaries = [
+        current.start_frame
+        for previous, current in zip(ordered, ordered[1:])
+        if previous.label != current.label
+    ]
+    if not boundaries:
+        return None
+    return min(abs(int(frame) - boundary) for boundary in boundaries)
+
+
 def _annotation_keys(csv_path: Path, video_key: str) -> tuple[str, ...]:
     """生成几种可能的标注匹配名称，提高标注文件的容错性。"""
     stem = _normalize_video_name(csv_path.stem)

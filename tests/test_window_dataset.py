@@ -3,10 +3,37 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fall_prediction.window_dataset import build_window_dataset, infer_label_from_filename
+from fall_prediction.window_dataset import (
+    LabelInterval,
+    boundary_distance_for_frame,
+    build_window_dataset,
+    infer_label_from_filename,
+)
 
 
 class WindowDatasetTest(unittest.TestCase):
+    def test_boundary_distance_uses_start_of_changed_interval(self):
+        intervals = {
+            "fall-01-cam0": [
+                LabelInterval("fall-01-cam0", 0, 9, "Normal"),
+                LabelInterval("fall-01-cam0", 10, 19, "Pre-fall"),
+                LabelInterval("fall-01-cam0", 20, 29, "Fall"),
+            ]
+        }
+
+        self.assertEqual(
+            boundary_distance_for_frame(
+                Path("fall-01-cam0.csv"), "fall-01-cam0", 13, intervals
+            ),
+            3,
+        )
+        self.assertEqual(
+            boundary_distance_for_frame(
+                Path("fall-01-cam0.csv"), "fall-01-cam0", 18, intervals
+            ),
+            2,
+        )
+
     def test_infer_label_from_urfall_filename(self):
         self.assertEqual(infer_label_from_filename("fall-01-cam0.csv"), "Fall")
         self.assertEqual(infer_label_from_filename("adl-01-cam0.csv"), "Normal")
@@ -63,6 +90,50 @@ class WindowDatasetTest(unittest.TestCase):
     def test_annotations_mode_requires_annotations_path(self):
         with self.assertRaisesRegex(ValueError, "annotations_path is required"):
             build_window_dataset(["fall-01-cam0.csv"], label_mode="annotations")
+
+    def test_robust_dataset_adds_calibration_masks_and_occlusion_variants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path = Path(directory) / "fall-01-cam0.csv"
+            with csv_path.open("w", newline="", encoding="utf-8") as file:
+                fieldnames = [
+                    "frame", "time", "has_pose", "torso_angle", "torso_angular_velocity",
+                    "body_center_y", "body_center_delta", "vertical_velocity", "aspect_ratio",
+                    "body_width", "body_height", "visibility_mean", "center_drop",
+                ]
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
+                writer.writeheader()
+                for frame in range(6):
+                    writer.writerow(
+                        {
+                            "frame": frame,
+                            "time": frame / 30,
+                            "has_pose": 1,
+                            "torso_angle": 5.0,
+                            "torso_angular_velocity": 0.0,
+                            "body_center_y": 0.45,
+                            "body_center_delta": 0.0,
+                            "vertical_velocity": 0.0,
+                            "aspect_ratio": 0.4,
+                            "body_width": 0.2,
+                            "body_height": 0.5,
+                            "visibility_mean": 0.9,
+                            "center_drop": 0.0,
+                        }
+                    )
+
+            dataset = build_window_dataset(
+                [csv_path],
+                window_size=2,
+                stride=1,
+                use_standing_calibration=True,
+                partial_pose_augmentation=True,
+                baseline_frames=3,
+            )
+
+        self.assertEqual(len(dataset.X), 25)  # 5 windows × original + 4 dropout variants
+        self.assertEqual(len(dataset.X[0]), 2 * 15)
+        self.assertIn("t-1_torso_valid", dataset.feature_names)
+        self.assertIn("t_feature_coverage", dataset.feature_names)
 
     def test_upfall_camera_views_share_trial_group(self):
         with tempfile.TemporaryDirectory() as directory:

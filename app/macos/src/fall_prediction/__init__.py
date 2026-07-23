@@ -32,6 +32,7 @@ from .sensitivity import (
 __all__ = [
     "FallPredictor",    # 跌倒预测器（核心类）
     "MachineLearningFallPredictor",  # 机器学习窗口预测器
+    "DualModelFallPredictor",  # 树模型正式判断 + 深度融合辅助判断
     "FeatureExtractor", # 特征提取器
     "PoseFeatures",     # 单帧姿势特征数据结构
     "Prediction",       # 单帧预测结果数据结构
@@ -54,4 +55,8 @@ def __getattr__(name: str):
         from .ml_predictor import MachineLearningFallPredictor
 
         return MachineLearningFallPredictor
+    if name == "DualModelFallPredictor":
+        from .ensemble_predictor import DualModelFallPredictor
+
+        return DualModelFallPredictor
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

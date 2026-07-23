@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fallguard"
-version = "0.2.0"
+version = "0.3.3"
 description = "FallGuard — AI-powered fall detection desktop app for macOS."
 requires-python = ">=3.10,<3.13"
 dependencies = [
@@ -14,23 +14,30 @@ dependencies = [
     "joblib>=1.3",
     "Pillow>=10.0",
     "ultralytics>=8.4",
-    "pywebview>=6.0",
-    "rumps>=0.4",
-    "matplotlib>=3.8",
-    "pyobjc-framework-Cocoa>=11",
-    "pyobjc-framework-Quartz>=11",
-    "pyobjc-framework-WebKit>=11",
+    "torch>=2.2",
 ]
 
 [project.optional-dependencies]
 mediapipe = ["mediapipe==0.10.14"]
 build = ["pyinstaller>=6.0", "wheel"]
+legacy-ui = [
+    "pywebview>=6.0",
+    "rumps>=0.4",
+    "pyobjc-framework-Cocoa>=11",
+    "pyobjc-framework-Quartz>=11",
+    "pyobjc-framework-WebKit>=11",
+]
 
 [project.scripts]
 fallguard = "fall_prediction_desktop.__main__:main"
+fallguard-ai = "fall_prediction_service.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 "fall_prediction_desktop.database" = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["build", "dist", "release", ".venv"]

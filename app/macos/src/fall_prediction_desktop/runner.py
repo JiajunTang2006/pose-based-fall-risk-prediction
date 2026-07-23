@@ -23,6 +23,7 @@ class PredictionJob:
     mediapipe_model_path: Path | None = None
     yolo_model_path: Path | None = None
     classifier_model_path: Path | None = None
+    fusion_model_path: Path | None = None
     write_csv: bool = True
     write_video: bool = True
     show_preview: bool = False
@@ -32,6 +33,8 @@ class PredictionJob:
     use_hmm: bool = False
     use_accel: bool = False
     use_temporal_fall_validation: bool = True
+    fusion_fall_confirmation_steps: int = 3
+    use_static_lying_adl_filter: bool = True
 
 
 @dataclass(frozen=True)
@@ -140,6 +143,7 @@ def run_prediction_job(
         show=job.show_preview,
         predictor_type=job.predictor,
         classifier_model_path=resolve_optional_path(job.classifier_model_path, app_root),
+        fusion_model_path=resolve_optional_path(job.fusion_model_path, app_root),
         prefall_alert_threshold=prefall_alert_threshold,
         prefall_alert_frames=prefall_alert_frames,
         use_hmm=job.use_hmm,
@@ -147,6 +151,8 @@ def run_prediction_job(
         use_temporal_fall_validation=job.use_temporal_fall_validation,
         fall_validator_settings=fall_validator_settings,
         temporal_sensitivity=sensitivity or "high",
+        fusion_fall_confirmation_steps=job.fusion_fall_confirmation_steps,
+        use_static_lying_adl_filter=job.use_static_lying_adl_filter,
         image_sequence_fps=job.image_fps,
         predictor_config=predictor_config,
         on_prediction=on_prediction,
@@ -168,7 +174,7 @@ def normalize_source(source_text: str) -> str | int:
 def validate_job(job: PredictionJob, source: str | int, repo_root: Path) -> None:
     if job.pose_backend not in {"mediapipe", "yolo"}:
         raise ValueError(f"Unknown pose backend: {job.pose_backend}")
-    if job.predictor not in {"rule", "ml"}:
+    if job.predictor not in {"rule", "ml", "deep", "fusion", "ensemble"}:
         raise ValueError(f"Unknown predictor: {job.predictor}")
     if job.image_fps <= 0:
         raise ValueError("Image sequence FPS must be greater than 0.")
@@ -183,7 +189,13 @@ def validate_job(job: PredictionJob, source: str | int, repo_root: Path) -> None
         ("Config", job.config_path),
         ("MediaPipe model", job.mediapipe_model_path),
         ("YOLO model", job.yolo_model_path if job.pose_backend == "yolo" else None),
-        ("Classifier model", job.classifier_model_path if job.predictor == "ml" else None),
+        (
+            "Classifier model",
+            job.classifier_model_path
+            if job.predictor in {"ml", "deep", "fusion", "ensemble"}
+            else None,
+        ),
+        ("Fusion model", job.fusion_model_path if job.predictor == "ensemble" else None),
     ):
         resolved = resolve_optional_path(maybe_path, repo_root)
         if resolved is not None and not resolved.exists():

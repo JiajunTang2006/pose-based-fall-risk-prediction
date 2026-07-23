@@ -54,6 +54,8 @@ CSV_COLUMNS = (
     "time",                   # 时间（秒）
     "state",                  # 最终状态（Normal/Pre-fall/Fall/Unknown）
     "alert_state",            # 报警状态；ML 模型可比 state 更早触发 Pre-fall
+    "advisory_state",         # 深度融合模型的辅助提示，不等同于正式报警
+    "decision_tier",          # 双模型分级判断层级
     "instant_state",          # 瞬时状态（未平滑）
     "risk_score",             # 瞬时风险分数
     "smoothed_risk_score",    # 平滑后的风险分数
@@ -81,6 +83,7 @@ def process_video(
     show: bool = False,
     predictor_type: str = "rule",
     classifier_model_path: str | Path | None = None,
+    fusion_model_path: str | Path | None = None,
     prefall_alert_threshold: float | None = None,
     prefall_alert_frames: int | None = None,
     use_hmm: bool = False,
@@ -88,6 +91,8 @@ def process_video(
     use_temporal_fall_validation: bool = True,
     fall_validator_settings: Mapping[str, float | int] | None = None,
     temporal_sensitivity: str = "high",
+    fusion_fall_confirmation_steps: int = 3,
+    use_static_lying_adl_filter: bool = True,
     image_sequence_fps: float = 30.0,
     predictor_config: PredictorConfig | None = None,
     on_prediction: Callable[[object, int, float, object], None] | None = None,
@@ -164,6 +169,7 @@ def process_video(
             predictor_type,
             classifier_model_path,
             predictor_config,
+            fusion_model_path=fusion_model_path,
             prefall_alert_threshold=prefall_alert_threshold,
             prefall_alert_frames=prefall_alert_frames,
             use_hmm=use_hmm,
@@ -171,6 +177,8 @@ def process_video(
             use_temporal_fall_validation=use_temporal_fall_validation,
             fall_validator_settings=fall_validator_settings,
             temporal_sensitivity=temporal_sensitivity,
+            fusion_fall_confirmation_steps=fusion_fall_confirmation_steps,
+            use_static_lying_adl_filter=use_static_lying_adl_filter,
         )  # 跌倒预测器
 
         frame_index = 0
@@ -247,6 +255,7 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
     import cv2
 
     display_state = prediction.alert_state or prediction.state
+    advisory_state = getattr(prediction, "advisory_state", None)
 
     # 根据报警状态选择文字颜色
     color = {
@@ -255,9 +264,13 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
         "Fall": (0, 80, 255),        # 红色
         "Unknown": (160, 160, 160),  # 灰色
     }.get(display_state, (255, 255, 255))
+    if advisory_state and display_state == "Normal":
+        color = (0, 200, 255) if advisory_state == "Pre-fall" else (0, 120, 255)
 
     # 只保留最关键的信息，避免画面被参数遮住。
     lines = [f"State: {display_state}"]
+    if advisory_state and advisory_state != display_state:
+        lines.append(f"Advisory: {advisory_state}")
     if display_state != prediction.state:
         lines.insert(1, f"Model: {prediction.state}")
 
@@ -305,6 +318,8 @@ def prediction_to_row(prediction) -> dict[str, str | int]:
         "time": f"{prediction.timestamp:.4f}",
         "state": prediction.state,
         "alert_state": prediction.alert_state or prediction.state,
+        "advisory_state": getattr(prediction, "advisory_state", None) or "",
+        "decision_tier": getattr(prediction, "decision_tier", None) or "",
         "instant_state": prediction.instant_state,
         "risk_score": f"{prediction.risk_score:.4f}",
         "smoothed_risk_score": f"{prediction.smoothed_risk_score:.4f}",
@@ -339,6 +354,7 @@ def create_predictor(
     predictor_type: str,
     classifier_model_path: str | Path | None,
     predictor_config: PredictorConfig | None = None,
+    fusion_model_path: str | Path | None = None,
     prefall_alert_threshold: float | None = None,
     prefall_alert_frames: int | None = None,
     use_hmm: bool = False,
@@ -346,13 +362,39 @@ def create_predictor(
     use_temporal_fall_validation: bool = True,
     fall_validator_settings: Mapping[str, float | int] | None = None,
     temporal_sensitivity: str = "high",
+    fusion_fall_confirmation_steps: int = 3,
+    use_static_lying_adl_filter: bool = True,
 ):
     """Create the requested prediction backend."""
     if predictor_type == "rule":
         return FallPredictor(config=predictor_config)
-    if predictor_type == "ml":
+    if predictor_type == "ensemble":
+        from .ensemble_predictor import (
+            DEFAULT_FUSION_MODEL_PATH,
+            DEFAULT_TREE_MODEL_PATH,
+            DualModelFallPredictor,
+        )
+
+        return DualModelFallPredictor(
+            tree_model_path=classifier_model_path or DEFAULT_TREE_MODEL_PATH,
+            fusion_model_path=fusion_model_path or DEFAULT_FUSION_MODEL_PATH,
+            predictor_config=predictor_config,
+            prefall_alert_threshold=prefall_alert_threshold,
+            prefall_alert_consecutive_frames=prefall_alert_frames,
+            fusion_use_hmm=use_hmm,
+            use_accel=use_accel,
+            fusion_fall_confirmation_steps=fusion_fall_confirmation_steps,
+            use_static_lying_adl_filter=use_static_lying_adl_filter,
+        )
+    if predictor_type in {"ml", "deep", "fusion"}:
         if classifier_model_path is None:
-            classifier_model_path = "models/yolo_tail60_prefall_accel_classifier.joblib"
+            classifier_model_path = (
+                "models/skeleton_feature_fusion_tuned.pt"
+                if predictor_type == "fusion"
+                else "models/tcn_prefall_classifier.pt"
+                if predictor_type == "deep"
+                else "models/yolo_tail60_prefall_accel_robust_classifier.joblib"
+            )
         from .ml_predictor import MachineLearningFallPredictor
 
         return MachineLearningFallPredictor(
@@ -593,14 +635,19 @@ def main() -> None:
     parser.add_argument("--image-fps", type=float, default=30.0, help="当 --source 是图片目录时使用的帧率，默认 30。")
     parser.add_argument(
         "--predictor",
-        choices=("rule", "ml"),
+        choices=("rule", "ml", "deep", "fusion", "ensemble"),
         default="rule",
-        help="预测后端：rule 使用规则阈值系统，ml 使用训练好的机器学习分类器。",
+        help="预测后端：rule规则、ml树模型、fusion深度融合、ensemble双模型协作。",
     )
     parser.add_argument(
         "--classifier-model",
-        default="models/yolo_tail60_prefall_accel_classifier.joblib",
-        help="当 --predictor ml 时加载的 joblib 分类器路径。",
+        default=None,
+        help="分类器路径；ensemble 模式下为树模型路径。",
+    )
+    parser.add_argument(
+        "--fusion-model",
+        default="models/skeleton_feature_fusion_tuned.pt",
+        help="ensemble 模式加载的骨架与特征融合模型路径。",
     )
     parser.add_argument(
         "--prefall-alert-threshold",
@@ -665,6 +712,7 @@ def main() -> None:
         show=args.show,
         predictor_type=args.predictor,
         classifier_model_path=args.classifier_model,
+        fusion_model_path=args.fusion_model,
         prefall_alert_threshold=prefall_alert_threshold,
         prefall_alert_frames=prefall_alert_frames,
         use_hmm=args.use_hmm,

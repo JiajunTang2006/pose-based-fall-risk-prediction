@@ -16,6 +16,7 @@
 """
 
 from .config import load_predictor_config
+from .ensemble_predictor import DualModelFallPredictor
 from .features import FeatureExtractor, PoseFeatures
 from .ml_predictor import MachineLearningFallPredictor
 from .predictor import FallPredictor, Prediction, PredictorConfig
@@ -24,6 +25,7 @@ from .risk import RiskConfig, RiskScorer
 __all__ = [
     "FallPredictor",    # 跌倒预测器（核心类）
     "MachineLearningFallPredictor",  # 机器学习窗口预测器
+    "DualModelFallPredictor",  # 树模型确认 + 深度融合模型提前预警
     "FeatureExtractor", # 特征提取器
     "PoseFeatures",     # 单帧姿势特征数据结构
     "Prediction",       # 单帧预测结果数据结构

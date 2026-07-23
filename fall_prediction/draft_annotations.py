@@ -12,6 +12,7 @@
 其中前 4 列可以直接被 train_model.py 的 --label-mode annotations 使用：
     video,start_frame,end_frame,label
 
+后面的 method / notes 只是给人看的，方便你知道这段标注是怎么生成的。
 
 使用示例：
     python -m fall_prediction.draft_annotations \

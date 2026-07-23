@@ -4,7 +4,7 @@ Evaluate the current trained model on exported feature CSVs.
 This is a lightweight post-training sanity check. It does not re-run pose
 estimation; it reuses feature CSVs and simulates the runtime ML path:
 
-    model probabilities -> optional HMM -> alert layer -> TemporalFallValidator
+    model probabilities -> optional HMM -> alert layer -> TemporalSequenceGate
 
 The report includes optimistic all-data window metrics plus sequence-level
 checks for ADL false Fall alarms and Fall-video detection.
@@ -24,8 +24,10 @@ from typing import Sequence
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from fall_prediction.ml_features import ACCEL_FEATURE_COLUMNS, compute_window_accel_features, flatten_window
+from fall_prediction.ml_features import compute_window_accel_features, flatten_window
 from fall_prediction.ml_predictor import MachineLearningFallPredictor
+from fall_prediction.robustness import calibrate_feature_rows
+from fall_prediction.skeleton_dataset import index_landmark_csvs, normalize_skeleton_rows
 from fall_prediction.train_model import build_validation_metrics
 from fall_prediction.window_dataset import (
     DEFAULT_STRIDE,
@@ -54,10 +56,16 @@ DEFAULT_CONFIRMED_LYING_SEGMENTS = (
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate the current runtime model on feature CSVs.")
-    parser.add_argument("--model", default="models/yolo_tail60_prefall_accel_classifier.joblib")
+    parser.add_argument("--model", default="models/yolo_tail60_prefall_accel_robust_classifier.joblib")
     parser.add_argument("--annotations", default="data/ur_up_train_drop60f_15pct_annotations.csv")
-    parser.add_argument("--feature-dir", action="append", default=["outputs/features/urfall_yolo", "outputs/features/upfall_yolo"])
+    parser.add_argument("--feature-dir", action="append", default=None)
+    parser.add_argument("--landmark-dir", action="append", default=None)
     parser.add_argument("--output", default="reports/current_model_runtime_eval.json")
+    parser.add_argument(
+        "--group-filter-metrics",
+        default=None,
+        help="Only evaluate validation_groups recorded in this metrics JSON.",
+    )
     parser.add_argument("--window-size", type=int, default=DEFAULT_WINDOW_SIZE)
     parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE)
     parser.add_argument("--use-hmm", action=argparse.BooleanOptionalAction, default=True)
@@ -82,7 +90,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    csv_paths = collect_csv_paths([Path(path) for path in args.feature_dir])
+    feature_dirs = args.feature_dir or ["outputs/features/urfall_yolo", "outputs/features/upfall_yolo"]
+    csv_paths = collect_csv_paths([Path(path) for path in feature_dirs])
+    if args.group_filter_metrics:
+        split_report = json.loads(Path(args.group_filter_metrics).read_text(encoding="utf-8"))
+        allowed_groups = set(split_report["validation_split"]["validation_groups"])
+        csv_paths = [path for path in csv_paths if _video_key(path) in allowed_groups]
     intervals = load_label_intervals(args.annotations)
     predictor = MachineLearningFallPredictor(
         args.model,
@@ -93,6 +106,13 @@ def main() -> None:
         use_temporal_fall_validation=args.use_temporal_validation,
         temporal_sensitivity=args.sensitivity,
     )
+    landmark_index = None
+    if predictor._requires_skeleton:
+        landmark_dirs = args.landmark_dir or [
+            "outputs/landmarks_upperbody/urfall_yolo",
+            "outputs/landmarks_upperbody/upfall_yolo",
+        ]
+        landmark_index = index_landmark_csvs(landmark_dirs)
 
     raw_true: list[str] = []
     raw_pred: list[str] = []
@@ -109,15 +129,29 @@ def main() -> None:
     for csv_path in csv_paths:
         predictor.reset()
         rows = load_feature_rows(csv_path)
+        skeleton_sequence = None
+        if landmark_index is not None:
+            landmark_path = landmark_index.get(csv_path.stem.lower())
+            if landmark_path is None:
+                raise FileNotFoundError(f"No landmark CSV matches {csv_path}")
+            skeleton_sequence = normalize_skeleton_rows(load_feature_rows(landmark_path))
+        model_rows = rows
+        if predictor._use_standing_calibration:
+            model_rows, _baseline = calibrate_feature_rows(
+                rows,
+                baseline_frames=predictor.baseline_frames,
+                min_visibility=predictor.min_visibility,
+            )
         video_key = _video_key(csv_path)
         file_label = infer_label_from_filename(csv_path)
         video_events = []
 
-        if len(rows) < args.window_size:
+        if len(rows) < args.window_size or len(model_rows) != len(rows):
             continue
 
         for start in range(0, len(rows) - args.window_size + 1, args.stride):
             window_rows = rows[start : start + args.window_size]
+            model_window_rows = model_rows[start : start + args.window_size]
             end_frame = _row_frame(window_rows[-1], start + args.window_size - 1)
             true_label = _label_for_window(
                 csv_path=csv_path,
@@ -130,13 +164,29 @@ def main() -> None:
             if true_label is None:
                 continue
 
-            window_list = compute_window_accel_features(window_rows)
-            sample = [flatten_window(window_list, ACCEL_FEATURE_COLUMNS)]
+            if predictor._use_accel:
+                base_feature_columns = tuple(
+                    column
+                    for column in predictor.feature_columns
+                    if column not in {"torso_angular_accel", "vertical_accel"}
+                )
+                window_list = compute_window_accel_features(
+                    model_window_rows,
+                    base_feature_columns=base_feature_columns,
+                )
+            else:
+                window_list = list(model_window_rows)
+            sample = [flatten_window(window_list, predictor.feature_columns)]
+            if skeleton_sequence is not None:
+                predictor.model.set_skeleton_window(
+                    skeleton_sequence[:, start : start + args.window_size, :]
+                )
             model_state, risk_score, model_alert_state = predictor._predict_sample(sample)
             runtime_state, runtime_alert = predictor._apply_temporal_validation(
                 model_state,
                 model_alert_state,
                 window_list,
+                window_rows,
             )
 
             raw_true.append(true_label)
@@ -184,7 +234,8 @@ def main() -> None:
     report = {
         "model": args.model,
         "annotations": args.annotations,
-        "feature_dirs": args.feature_dir,
+        "feature_dirs": feature_dirs,
+        "group_filter_metrics": args.group_filter_metrics,
         "use_hmm": args.use_hmm,
         "use_temporal_validation": args.use_temporal_validation,
         "sensitivity": args.sensitivity,

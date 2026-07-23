@@ -74,6 +74,27 @@ def pose_features_to_ml_row(features: PoseFeatures, center_drop: float = 0.0) ->
         "body_height": features.body_height,
         "visibility_mean": features.visibility_mean,
         "center_drop": center_drop,
+        # Extra metadata used only by robust artifacts; legacy feature columns
+        # ignore these keys and therefore remain fully compatible.
+        "timestamp": features.timestamp,
+        "torso_signed_angle": features.torso_signed_angle_deg,
+        "torso_valid": 1.0 if features.torso_valid else 0.0,
+        "center_valid": 1.0 if features.center_valid else 0.0,
+        "bbox_valid": 1.0 if features.bbox_valid else 0.0,
+        "feature_coverage": (
+            float(features.torso_valid) + float(features.center_valid) + float(features.bbox_valid)
+        )
+        / 3.0,
+        "shoulder_center_y": features.shoulder_center_y,
+        "shoulder_center_delta": features.shoulder_center_delta,
+        "shoulder_vertical_velocity": features.shoulder_vertical_velocity,
+        "shoulder_line_angle": features.shoulder_line_angle_deg,
+        "shoulder_line_angular_velocity": features.shoulder_line_angular_velocity,
+        "upper_body_width": features.upper_body_width,
+        "upper_body_height": features.upper_body_height,
+        "upper_body_aspect_ratio": features.upper_body_aspect_ratio,
+        "upper_body_valid": 1.0 if features.upper_body_valid else 0.0,
+        "upper_body_visibility_mean": features.upper_body_visibility_mean,
     }
 
 
@@ -152,6 +173,7 @@ def _safe_float(value: object) -> float:
 
 def compute_window_accel_features(
     window_rows: Sequence[Mapping[str, object]],
+    base_feature_columns: Sequence[str] = ML_FEATURE_COLUMNS,
 ) -> list[dict[str, float]]:
     """
     为滑动窗口中的每一帧计算加速度特征（二阶导数）。
@@ -167,7 +189,9 @@ def compute_window_accel_features(
     for i, row in enumerate(window_rows):
         entry: dict[str, float] = {}
         # 复制原始特征
-        for col in ML_FEATURE_COLUMNS:
+        for col in base_feature_columns:
+            if col in {"torso_angular_accel", "vertical_accel"}:
+                continue
             entry[col] = _safe_float(row.get(col, 0.0))
         # 计算加速度
         if i == 0:

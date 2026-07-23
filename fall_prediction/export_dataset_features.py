@@ -85,6 +85,11 @@ def main() -> None:
     parser.add_argument("--input-dir", default="data/videos/urfall", help="包含视频文件或图片序列目录的数据集目录。")
     parser.add_argument("--output-dir", default="outputs/features/urfall_yolo", help="特征 CSV 输出目录。")
     parser.add_argument("--annotated-video-dir", default=None, help="可选：保存带骨架和状态文字的标注视频目录。")
+    parser.add_argument(
+        "--landmarks-output-dir",
+        default=None,
+        help="可选：同时保存每个视频的完整 YOLO/MediaPipe 关键点 CSV。",
+    )
     parser.add_argument("--pose-model", default=None, help="可选：MediaPipe Tasks API 使用的姿态模型路径。")
     parser.add_argument(
         "--pose-backend",
@@ -118,6 +123,9 @@ def main() -> None:
     annotated_dir = Path(args.annotated_video_dir) if args.annotated_video_dir else None
     if annotated_dir:
         annotated_dir.mkdir(parents=True, exist_ok=True)
+    landmarks_dir = Path(args.landmarks_output_dir) if args.landmarks_output_dir else None
+    if landmarks_dir:
+        landmarks_dir.mkdir(parents=True, exist_ok=True)
 
     for index, source_path in enumerate(sources, start=1):
         # 每个数据源对应一个同名 CSV：
@@ -151,6 +159,11 @@ def main() -> None:
             predictor_type="rule",
             image_sequence_fps=args.image_fps,
             predictor_config=predictor_config,
+            output_landmarks_csv=(
+                landmarks_dir / f"{source_path.stem}_landmarks.csv"
+                if landmarks_dir
+                else None
+            ),
         )
 
 

@@ -1,0 +1,230 @@
+/*
+ 英文前端文字文件（应用切换到 English 时使用）
+
+ 修改方法：只修改等号右侧引号内的英文，左侧的 key 不要改。
+ 示例："events.refresh" = "Refresh"; 只可修改第二个 "Refresh"。
+ 注意：请保留 %d、%@、%% 等占位符，以及每行末尾的分号。
+ 页面与代码文件的完整对照见 native/FallGuard/FRONTEND_TEXT_GUIDE.md。
+*/
+
+/* 左侧导航栏：Dashboard、Events、Import Media、Profiles */
+"tab.dashboard" = "Dashboard";
+"tab.events" = "Events";
+"tab.import_media" = "Import Media";
+"tab.profiles" = "Profiles";
+
+/* 左侧顶部品牌区，以及默认档案名称 */
+"profile.default" = "Default";
+
+/* Dashboard 首页：启动、错误和就绪卡片 */
+"dashboard.launching" = "Starting FallGuard…";
+"dashboard.error.title" = "Service Error";
+"dashboard.retry" = "Retry";
+"dashboard.ready" = "Ready";
+"dashboard.start_monitoring" = "Start Monitoring";
+"dashboard.loading.camera" = "Starting camera…";
+"dashboard.stopping" = "Stopping…";
+"dashboard.importing" = "Importing Media…";
+
+/* Dashboard 监控页：实时画面、风险卡片、趋势图和空状态文字 */
+"dashboard.live_monitor" = "Live Monitor";
+"dashboard.risk_prediction" = "Risk Prediction";
+"dashboard.system_status" = "System Status";
+"dashboard.risk_trend" = "Risk Trend";
+"dashboard.last_60s" = "Last 60s";
+"dashboard.no_data" = "No data yet";
+"dashboard.recent_events" = "Recent Events";
+"dashboard.no_events" = "No events recorded yet.";
+"dashboard.placeholder" = "Camera preview will appear here";
+"dashboard.placeholder_sub" = "Click Start Monitoring to open camera";
+
+/* Dashboard 风险等级 */
+"risk.low" = "Low";
+"risk.medium" = "Medium";
+"risk.high" = "High";
+
+/* Dashboard 状态标签和系统状态卡片 */
+"status.safe" = "All Clear";
+"status.warning" = "Warning";
+"status.danger" = "Danger";
+"status.unknown" = "Standby";
+"status.idle_detail" = "Not currently monitoring";
+"status.camera" = "Camera";
+"status.model" = "Detection Model";
+"status.confidence" = "Confidence";
+"status.environment" = "Status";
+"status.connected" = "Connected";
+"status.idle" = "Idle";
+"status.loading" = "Loading";
+"status.active" = "Active";
+"status.monitoring" = "Monitoring";
+"status.standby" = "Standby";
+
+/* Dashboard 监控统计指标 */
+"metric.monitor_time" = "Monitor Time";
+"metric.total_alerts" = "Total Alerts";
+"metric.high_risk" = "High Risk";
+"metric.avg_risk" = "Avg Risk";
+"metric.version" = "Version";
+
+/* 主窗口最顶部的 Start / Stop 按钮 */
+"button.start" = "Start";
+"button.stop" = "Stop";
+
+/* 检测结果状态 */
+"state.normal" = "Normal";
+"state.prefall" = "Pre-fall";
+"state.fall" = "Fall";
+"state.unknown" = "Unknown";
+
+/* 主窗口顶部左侧的服务连接状态 */
+"service.stopped" = "Stopped";
+"service.starting" = "Starting…";
+"service.ready" = "Connected";
+"service.stopping" = "Stopping…";
+
+/* Events 页面：标题、Refresh、筛选栏、空状态和事件类型 */
+"events.title" = "Events";
+"events.refresh" = "Refresh";
+"events.empty" = "No events recorded. Start monitoring to detect fall events.";
+"events.count" = "%d events";
+"events.copy_id" = "Copy Event ID";
+"events.filter.all" = "All Types";
+"events.filter.fall" = "Falls";
+"events.filter.prefall" = "Pre-falls";
+"events.filter.all_status" = "All Status";
+"events.filter.open" = "Open";
+"events.filter.resolved" = "Resolved";
+"event.type.fall" = "Fall Detected";
+"event.type.prefall" = "Pre-fall Warning";
+
+/* Import Media 页面：文件选择、处理进度和结果文字 */
+"import.title" = "Import Media";
+"import.select_files" = "Select Media Files";
+"import.supported_formats" = "Supported: MP4, MOV, AVI, MKV, WEBM, PNG, JPG, HEIC";
+"import.choose_video" = "Choose Video";
+"import.choose_folder" = "Choose Photo Folder";
+"import.selected" = "Selected Files";
+"import.clear" = "Clear";
+"import.start" = "Start Import";
+"import.complete" = "Import Complete";
+"import.output" = "Output:";
+"import.new" = "New Import";
+"import.failed" = "Import Failed";
+"import.retry" = "Try Again";
+"import.processing" = "Processing Media…";
+"import.cancel" = "Cancel";
+"import.panel.message" = "Choose a video or image file to analyze.";
+"import.panel.select" = "Select";
+"import.panel.folder.message" = "Choose a folder containing photos.";
+
+/* Profiles 页面：Create Profile、Activate、删除弹窗和统计文字 */
+"profiles.title" = "Profiles";
+"profiles.create" = "Create Profile";
+"profiles.empty" = "No profiles yet. Create one to get started.";
+"profiles.count" = "%d profiles";
+"profiles.name_placeholder" = "Profile name";
+"profiles.create_button" = "Create";
+"profiles.create_message" = "Enter a name for the new profile.";
+"profiles.activate" = "Activate";
+"profiles.active_label" = "Active";
+"profiles.delete" = "Delete";
+"profiles.delete_title" = "Delete Profile?";
+"profiles.delete_message" = "Are you sure you want to delete \"%@\"? This cannot be undone.";
+"profiles.fall_count" = "%d falls";
+
+/* Settings 窗口：左侧栏目及 General / Detection / Alerts / Data / About 内容 */
+"settings.title" = "Settings";
+"settings.tab.general" = "General";
+"settings.tab.detection" = "Detection";
+"settings.tab.alerts" = "Alerts";
+"settings.tab.data" = "Data";
+"settings.tab.about" = "About";
+"settings.tab.appearance" = "Appearance";
+"settings.camera" = "Camera";
+"settings.camera_index" = "Camera Index";
+"settings.camera_note" = "Change the camera used for monitoring. Restart monitoring to apply.";
+"settings.sensitivity" = "Sensitivity";
+"settings.sensitivity_level" = "Detection Sensitivity";
+"settings.notifications" = "Notifications";
+"settings.sound_alert" = "Play alert sound on fall detection";
+"settings.sound_note" = "A system alert sound will play when a fall is detected.";
+"settings.appearance" = "Appearance";
+"settings.theme" = "Theme";
+"settings.language" = "Language";
+"settings.version" = "Version %@";
+"settings.api_version" = "API Version";
+"settings.service" = "Service";
+"settings.copyright" = "Copyright © 2025 FallGuard. All rights reserved.";
+"settings.data_management" = "Data Management";
+"settings.export_logs" = "Export Logs";
+"settings.export_logs_detail" = "Save diagnostic logs as a JSON file.";
+"settings.clear_history" = "Clear History";
+"settings.clear_history_detail" = "Remove all event history and monitoring data.";
+"settings.open_data" = "Open Data Folder";
+"settings.open_data_detail" = "Open the application data directory in Finder.";
+
+/* Settings > Appearance：主题选项 */
+"theme.system" = "System";
+"theme.light" = "Light";
+"theme.dark" = "Dark";
+
+/* Settings > Detection：灵敏度选项 */
+"sensitivity.low" = "Low";
+"sensitivity.medium" = "Medium";
+"sensitivity.high" = "High";
+
+/* macOS 屏幕最顶部系统菜单：File、Edit、View、Window、Help 等 */
+"menu.about" = "About FallGuard";
+"menu.about_format" = "About %@";
+"menu.file" = "File";
+"menu.edit" = "Edit";
+"menu.view" = "View";
+"menu.window" = "Window";
+"menu.help" = "Help";
+"menu.preferences" = "Preferences…";
+"menu.quit" = "Quit FallGuard";
+"menu.start_monitoring" = "Start Monitoring";
+"menu.stop_monitoring" = "Stop Monitoring";
+"menu.import_media" = "Import Media…";
+"menu.toggle_sidebar" = "Toggle Sidebar";
+"menu.show_main_window" = "Show Main Window";
+"menu.diagnostics" = "Diagnostics…";
+"menu.export_logs" = "Export Logs…";
+
+/* macOS 菜单栏中的 FallGuard 小图标菜单 */
+"menubar.status" = "Status";
+"menubar.status.monitoring" = "Monitoring — Risk: %d%%";
+"menubar.status.idle" = "Idle";
+"menubar.show" = "Show FallGuard";
+"menubar.start" = "Start Monitoring";
+"menubar.stop" = "Stop Monitoring";
+"menubar.settings" = "Settings…";
+"menubar.quit" = "Quit";
+
+/* macOS 系统通知：跌倒和预跌倒提醒 */
+"notification.fall.title" = "Fall Detected";
+"notification.fall.body" = "A possible fall has been detected (risk: %d%%). Please check immediately.";
+"notification.prefall.title" = "Pre-fall Warning";
+"notification.prefall.body" = "Unsteady movement detected (risk: %d%%). Stay alert.";
+
+/* 退出程序等确认弹窗 */
+"alert.quit.monitoring.title" = "Monitoring is Active";
+"alert.quit.monitoring.message" = "Stopping monitoring will end the current session. Are you sure you want to quit?";
+"alert.quit.button" = "Quit";
+"alert.cancel" = "Cancel";
+
+/* 服务启动、连接及导入失败时的错误提示 */
+"error.service.timeout" = "The background service did not start in time.";
+"error.service.early_exit" = "The background service exited before it was ready.";
+"error.service.invalid_ready" = "The background service sent an unrecognized startup message.";
+"error.service.health_failed" = "Service health check failed: %@";
+"error.service.crashed" = "The background service crashed during startup.";
+"error.service.unexpected_exit" = "The background service stopped unexpectedly.";
+"error.connection.lost" = "Connection to the background service was lost.";
+"error.startup.cancelled" = "Service startup was cancelled.";
+"error.import.stop_monitoring" = "Please stop monitoring before importing media.";
+
+/* 多个页面共用的通用按钮文字 */
+"cancel" = "Cancel";
+"delete" = "Delete";

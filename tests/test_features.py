@@ -144,6 +144,52 @@ class FeatureExtractorTest(unittest.TestCase):
         self.assertGreater(features.torso_angle_deg, 45.0)  # 倾斜角度应大于 45°
         self.assertGreater(features.aspect_ratio, 0.5)       # 宽高比也应增大
 
+    def test_missing_hips_keeps_bbox_but_marks_torso_and_center_invalid(self):
+        extractor = FeatureExtractor(min_visibility=0.2)
+        landmarks = make_landmarks()
+        landmarks[LEFT_HIP] = Landmark(0.0, 0.0, visibility=0.0)
+        landmarks[RIGHT_HIP] = Landmark(0.0, 0.0, visibility=0.0)
+
+        features = extractor.extract(landmarks, frame_index=0, timestamp=0.0)
+
+        self.assertTrue(features.has_pose)
+        self.assertFalse(features.torso_valid)
+        self.assertFalse(features.center_valid)
+        self.assertTrue(features.bbox_valid)
+        self.assertTrue(features.upper_body_valid)
+        self.assertEqual(features.torso_angle_deg, 0.0)
+
+    def test_motion_after_partial_gap_uses_full_elapsed_time(self):
+        extractor = FeatureExtractor(min_visibility=0.2)
+        extractor.extract(make_landmarks(), frame_index=0, timestamp=0.0)
+        partial = make_landmarks()
+        partial[LEFT_HIP] = Landmark(0.0, 0.0, visibility=0.0)
+        partial[RIGHT_HIP] = Landmark(0.0, 0.0, visibility=0.0)
+        extractor.extract(partial, frame_index=1, timestamp=0.1)
+        lower = make_landmarks(
+            left_shoulder=(0.45, 0.35),
+            right_shoulder=(0.55, 0.35),
+            left_hip=(0.46, 0.65),
+            right_hip=(0.54, 0.65),
+        )
+
+        features = extractor.extract(lower, frame_index=2, timestamp=0.2)
+
+        self.assertAlmostEqual(features.vertical_velocity, 0.5, places=5)
+
+    def test_upper_body_only_pose_does_not_claim_a_full_body_bbox(self):
+        extractor = FeatureExtractor(min_visibility=0.2)
+        landmarks = make_landmarks()
+        for index in (LEFT_HIP, RIGHT_HIP, LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE):
+            landmarks[index] = Landmark(0.0, 0.0, visibility=0.0)
+
+        features = extractor.extract(landmarks, frame_index=0, timestamp=0.0)
+
+        self.assertTrue(features.upper_body_valid)
+        self.assertFalse(features.torso_valid)
+        self.assertFalse(features.center_valid)
+        self.assertFalse(features.bbox_valid)
+
 
 if __name__ == "__main__":
     unittest.main()

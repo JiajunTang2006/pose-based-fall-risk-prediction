@@ -30,20 +30,25 @@ from .features import FeatureExtractor, PoseFeatures
 from .landmarks import Landmark
 from .ml_features import (
     ML_FEATURE_COLUMNS,
-    ACCEL_FEATURE_COLUMNS,
     flatten_window,
     pose_features_to_ml_row,
     compute_window_accel_features,
 )
 from .predictor import Prediction, PredictorConfig
 from .risk import RiskBreakdown
-from .window_dataset import DEFAULT_WINDOW_SIZE
+from .robustness import StandingFeatureCalibrator
+from .window_dataset import DEFAULT_STRIDE, DEFAULT_WINDOW_SIZE
 
 
 DEFAULT_PREDICTOR_CONFIG = PredictorConfig()
 DEFAULT_PREFALL_ALERT_THRESHOLD = 0.25
 DEFAULT_PREFALL_ALERT_CONSECUTIVE_FRAMES = 1
-DEFAULT_TEMPORAL_SENSITIVITY = "high"
+DEFAULT_TEMPORAL_SENSITIVITY = "medium"
+DEFAULT_PARTIAL_POSE_GRACE_FRAMES = 5
+DEFAULT_TEMPORAL_GATE_STRIDE = DEFAULT_STRIDE
+DEFAULT_CONTROLLED_UPRIGHT_VERTICAL_VELOCITY = 0.40
+DEFAULT_CONTROLLED_UPRIGHT_ANGULAR_VELOCITY = 100.0
+DEFAULT_CONTROLLED_UPRIGHT_CENTER_DROP_DELTA = 0.10
 NORMAL_STATES = {"Normal"}
 
 # HMM 默认参数
@@ -79,13 +84,11 @@ class TemporalSensitivityProfile:
     stable_normal_frames: int
     normal_memory: int
     prefall_memory: int
+    fall_probability_threshold: float
     fall_window: int
     fall_confirm_count: int
     fall_hold_frames: int
-    allow_direct_fall_with_strong_motion: bool
-    allow_sustained_fall_from_recent_normal: bool
-    require_motion_for_fall: bool
-    require_strong_motion_for_fall: bool = False
+    fall_recovery_normal_frames: int
 
 
 TEMPORAL_SENSITIVITY_PROFILES = {
@@ -93,52 +96,53 @@ TEMPORAL_SENSITIVITY_PROFILES = {
     # no single Pre-fall window can alert by itself.
     "high": TemporalSensitivityProfile(
         name="high",
-        prefall_probability_threshold=0.12,
+        prefall_probability_threshold=0.06,
         prefall_window=3,
         prefall_confirm_count=2,
         prefall_consecutive_frames=2,
         stable_normal_frames=1,
         normal_memory=30,
-        prefall_memory=18,
+        prefall_memory=20,
+        # Keep the already well-performing high profile on its original
+        # classifier/HMM Fall transition; the probability fallback targets the
+        # observed medium-profile argmax tie problem.
+        fall_probability_threshold=1.00,
         fall_window=2,
         fall_confirm_count=1,
-        fall_hold_frames=45,
-        allow_direct_fall_with_strong_motion=True,
-        allow_sustained_fall_from_recent_normal=True,
-        require_motion_for_fall=False,
+        fall_hold_frames=15,
+        fall_recovery_normal_frames=5,
     ),
     "medium": TemporalSensitivityProfile(
         name="medium",
-        prefall_probability_threshold=0.25,
-        prefall_window=5,
-        prefall_confirm_count=3,
-        prefall_consecutive_frames=2,
-        stable_normal_frames=1,
-        normal_memory=35,
-        prefall_memory=20,
-        fall_window=2,
-        fall_confirm_count=1,
-        fall_hold_frames=45,
-        allow_direct_fall_with_strong_motion=True,
-        allow_sustained_fall_from_recent_normal=True,
-        require_motion_for_fall=False,
-    ),
-    "low": TemporalSensitivityProfile(
-        name="low",
-        prefall_probability_threshold=0.12,
+        prefall_probability_threshold=0.40,
         prefall_window=3,
         prefall_confirm_count=2,
         prefall_consecutive_frames=2,
         stable_normal_frames=1,
-        normal_memory=45,
-        prefall_memory=24,
+        normal_memory=20,
+        prefall_memory=15,
+        fall_probability_threshold=0.45,
         fall_window=3,
         fall_confirm_count=2,
-        fall_hold_frames=45,
-        allow_direct_fall_with_strong_motion=False,
-        allow_sustained_fall_from_recent_normal=True,
-        require_motion_for_fall=False,
-        require_strong_motion_for_fall=False,
+        fall_hold_frames=20,
+        fall_recovery_normal_frames=10,
+    ),
+    "low": TemporalSensitivityProfile(
+        name="low",
+        prefall_probability_threshold=0.40,
+        prefall_window=5,
+        prefall_confirm_count=3,
+        prefall_consecutive_frames=2,
+        stable_normal_frames=1,
+        normal_memory=15,
+        prefall_memory=10,
+        # Keep low conservative until real-scene low-sensitivity samples are
+        # available; a 0.50 fallback reduced offline Fall event detection.
+        fall_probability_threshold=1.00,
+        fall_window=4,
+        fall_confirm_count=3,
+        fall_hold_frames=30,
+        fall_recovery_normal_frames=15,
     ),
 }
 
@@ -322,8 +326,16 @@ class TemporalSequenceGate:
     start and a short abnormal transition.
     """
 
-    def __init__(self, profile: TemporalSensitivityProfile | str = DEFAULT_TEMPORAL_SENSITIVITY) -> None:
+    def __init__(
+        self,
+        profile: TemporalSensitivityProfile | str = DEFAULT_TEMPORAL_SENSITIVITY,
+        *,
+        allow_warm_start_prefall: bool = True,
+        automatic_fall_recovery: bool = False,
+    ) -> None:
         self.profile = resolve_temporal_sensitivity_profile(profile)
+        self.allow_warm_start_prefall = bool(allow_warm_start_prefall)
+        self.automatic_fall_recovery = bool(automatic_fall_recovery)
         self._prefall_candidates: deque[bool] = deque(maxlen=self.profile.prefall_window)
         self._fall_candidates: deque[bool] = deque(maxlen=self.profile.fall_window)
         self._stable_normal_count = 0
@@ -331,6 +343,8 @@ class TemporalSequenceGate:
         self._prefall_consecutive_count = 0
         self._prefall_age: int | None = None
         self._fall_hold_remaining = 0
+        self._fall_recovery_normal_count = 0
+        self._warm_start_low_posture_count = 0
         self._internal_state = "Normal"
 
     def reset(self) -> None:
@@ -341,7 +355,27 @@ class TemporalSequenceGate:
         self._prefall_consecutive_count = 0
         self._prefall_age = None
         self._fall_hold_remaining = 0
+        self._fall_recovery_normal_count = 0
+        self._warm_start_low_posture_count = 0
         self._internal_state = "Normal"
+
+    def acknowledge_fall(self) -> None:
+        """Clear a latched Fall after explicit operator acknowledgement."""
+        self._prefall_candidates.clear()
+        self._fall_candidates.clear()
+        self._prefall_consecutive_count = 0
+        self._prefall_age = None
+        self._fall_hold_remaining = 0
+        self._fall_recovery_normal_count = 0
+        self._warm_start_low_posture_count = 0
+        self._stable_normal_count = 0
+        self._normal_age = None
+        self._internal_state = "Normal"
+
+    @property
+    def fall_latched(self) -> bool:
+        """Whether a confirmed Fall is waiting for acknowledgement/recovery."""
+        return self._internal_state == "Fall"
 
     def validate(
         self,
@@ -350,55 +384,114 @@ class TemporalSequenceGate:
         probabilities: Mapping[str, float],
         window_rows: Sequence[dict[str, float]],
     ) -> tuple[str, str]:
-        if self._fall_hold_remaining > 0:
-            self._fall_hold_remaining -= 1
-            self._age_event_memory()
-            self._internal_state = "Fall"
-            return "Fall", "Fall"
-
-        evidence = _motion_evidence(window_rows)
+        # Fall 是一个已确认事件，而不是每个窗口重新投票的姿态标签。
+        # 默认只能由操作员确认解除；显式开启自动恢复时也必须看到持续、
+        # 可靠直立的 Normal，单个 Normal 抖动不能解除报警。
         posture = _posture_evidence(window_rows)
-        prefall_probability = max(0.0, min(1.0, float(probabilities.get("Pre-fall", 0.0))))
+        motion = _motion_evidence(window_rows)
 
-        raw_prefall = (
-            state == "Pre-fall"
-            or prefall_probability >= self.profile.prefall_probability_threshold
+        if self._internal_state == "Fall":
+            return self._validate_latched_fall(state, alert_state, posture)
+
+        prefall_probability = max(0.0, min(1.0, float(probabilities.get("Pre-fall", 0.0))))
+        fall_probability = max(0.0, min(1.0, float(probabilities.get("Fall", 0.0))))
+
+        # Clear, slowly moving upright posture is trusted as Normal evidence.
+        # It bypasses model/HMM false positives while still refreshing temporal
+        # memory for a later real transition.
+        controlled_upright = (
+            posture.is_upright_normal
+            and motion.max_vertical_velocity < DEFAULT_CONTROLLED_UPRIGHT_VERTICAL_VELOCITY
+            and motion.max_angular_velocity < DEFAULT_CONTROLLED_UPRIGHT_ANGULAR_VELOCITY
+            and motion.center_drop_delta < DEFAULT_CONTROLLED_UPRIGHT_CENTER_DROP_DELTA
         )
-        raw_fall = state == "Fall" or alert_state == "Fall"
-        fall_like_motion = _has_fall_like_motion(evidence)
-        strong_fall_motion = _has_strong_fall_motion(evidence)
-        normal_signal = (
-            state == "Normal"
-            and not raw_prefall
+
+        # The classifier/HMM can remain on Pre-fall when Fall is a close second
+        # (or tied because of smoothing).  Requiring Fall to win the argmax made
+        # a sustained ~50% Fall probability invisible to the sequence vote,
+        # especially in the medium profile.  Treat a profile-specific Fall
+        # probability as a candidate too; the existing Normal -> Pre-fall
+        # history and multi-window vote still have to confirm the event.
+        classified_fall = state == "Fall" or alert_state == "Fall"
+        probability_fall_candidate = (
+            not controlled_upright
+            and self.profile.fall_probability_threshold < 1.0
+            and self._internal_state == "Pre-fall"
+            and fall_probability >= self.profile.fall_probability_threshold
+        )
+        raw_fall = not controlled_upright and (classified_fall or probability_fall_candidate)
+        # 当前已经是 Fall 的窗口不能反过来充当它自己的 Pre-fall 历史。
+        # Pre-fall 必须来自严格更早的独立窗口。
+        raw_prefall = (
+            not controlled_upright
             and not raw_fall
-            and not posture.is_static_low_posture
+            and (
+                state == "Pre-fall"
+                or alert_state == "Pre-fall"
+                or prefall_probability >= self.profile.prefall_probability_threshold
+            )
+        )
+        normal_signal = controlled_upright or (
+            state == "Normal" and not raw_prefall and not raw_fall and not posture.is_static_low_posture
         )
 
         self._update_normal_memory(normal_signal)
 
+        if posture.is_static_low_posture and not self._has_recent_normal():
+            self._warm_start_low_posture_count += 1
+        else:
+            self._warm_start_low_posture_count = 0
+
+        warm_start_signal = (
+            self.allow_warm_start_prefall
+            and not self._has_recent_normal()
+            and not controlled_upright
+            and (raw_prefall or raw_fall)
+            and max(prefall_probability, fall_probability) >= self.profile.prefall_probability_threshold
+            and (
+                not posture.is_static_low_posture
+                or self._warm_start_low_posture_count <= self.profile.prefall_memory
+            )
+        )
+
         valid_prefall = (
-            raw_prefall
-            and self._has_recent_normal()
-            and not (posture.is_static_low_posture and not fall_like_motion)
+            (raw_prefall or warm_start_signal)
+            and (self._has_recent_normal() or warm_start_signal)
+            and (not posture.is_static_low_posture or warm_start_signal)
             and prefall_probability >= self.profile.prefall_probability_threshold
         )
+        # A raw Fall at warm start has little Pre-fall probability by design.
+        # Downgrade it to a temporary Pre-fall warning instead of silently
+        # accepting it as Fall or discarding it as Normal.
+        if warm_start_signal and raw_fall:
+            valid_prefall = True
         self._update_prefall_memory(valid_prefall)
 
-        static_low_without_motion = posture.is_static_low_posture and not fall_like_motion
         has_prefall_context = self._has_recent_prefall() or self._prefall_is_confirmed()
-        has_event_context = has_prefall_context or self._has_recent_normal()
-        valid_fall_candidate = raw_fall and not (static_low_without_motion and not has_event_context)
+        # Fall 必须严格来自已经确认的 Normal -> Pre-fall 历史。
+        # 仅有 Normal、强运动或持续的 Fall 分类都不能绕过 Pre-fall。
+        valid_fall_candidate = raw_fall and has_prefall_context and self._has_recent_normal()
         self._fall_candidates.append(valid_fall_candidate)
 
-        if valid_fall_candidate:
-            if self._confirms_fall(fall_like_motion, strong_fall_motion):
+        if raw_fall:
+            if valid_fall_candidate and self._confirms_fall():
                 self._fall_hold_remaining = self.profile.fall_hold_frames
+                self._fall_recovery_normal_count = 0
                 self._prefall_age = 0
                 self._internal_state = "Fall"
                 return "Fall", "Fall"
-            if valid_prefall or self._has_recent_prefall() or fall_like_motion:
+            # A probability-only candidate is deliberately weaker than a
+            # classifier/HMM Fall.  Keep the already-confirmed warning visible
+            # while its multi-window Fall vote accumulates; dropping back to
+            # Normal here would prevent medium/low candidates from persisting.
+            if probability_fall_candidate and not classified_fall:
                 self._internal_state = "Pre-fall"
                 return "Pre-fall", "Pre-fall"
+            if warm_start_signal or self._prefall_is_confirmed():
+                self._internal_state = "Pre-fall"
+                return "Pre-fall", "Pre-fall"
+            self._internal_state = "Normal"
+            return "Normal", "Normal"
 
         if self._prefall_is_confirmed():
             self._prefall_age = 0
@@ -450,28 +543,46 @@ class TemporalSequenceGate:
     def _fall_candidate_count_is_enough(self) -> bool:
         return sum(self._fall_candidates) >= self.profile.fall_confirm_count
 
-    def _confirms_fall(self, fall_like_motion: bool, strong_fall_motion: bool) -> bool:
-        from_confirmed_prefall = self._has_recent_prefall() or self._prefall_is_confirmed()
-        from_recent_normal = self._has_recent_normal()
+    def _confirms_fall(self) -> bool:
+        return self._has_recent_prefall() and self._fall_candidate_count_is_enough()
 
-        if not self._fall_candidate_count_is_enough():
-            return False
+    def _validate_latched_fall(
+        self,
+        state: str,
+        alert_state: str,
+        posture: PostureEvidence,
+    ) -> tuple[str, str]:
+        if not self.automatic_fall_recovery:
+            return "Fall", "Fall"
 
-        if from_confirmed_prefall:
-            if self.profile.require_strong_motion_for_fall and not strong_fall_motion:
-                return False
-            if self.profile.require_motion_for_fall and not fall_like_motion:
-                return False
-            return True
-        if self.profile.allow_direct_fall_with_strong_motion and from_recent_normal and strong_fall_motion:
-            return True
-        if self.profile.allow_sustained_fall_from_recent_normal and from_recent_normal:
-            if self.profile.require_strong_motion_for_fall and not strong_fall_motion:
-                return False
-            if self.profile.require_motion_for_fall and not fall_like_motion:
-                return False
-            return True
-        return False
+        recovery_normal = (
+            state == "Normal"
+            and alert_state == "Normal"
+            and posture.is_upright_normal
+        )
+        if recovery_normal:
+            self._fall_recovery_normal_count += 1
+        else:
+            self._fall_recovery_normal_count = 0
+
+        if self._fall_hold_remaining > 0:
+            self._fall_hold_remaining -= 1
+            return "Fall", "Fall"
+
+        if self._fall_recovery_normal_count < self.profile.fall_recovery_normal_frames:
+            return "Fall", "Fall"
+
+        # 持续 Normal 才代表一次明确恢复。清掉上一场跌倒的 Pre-fall/Fall
+        # 记忆，同时把这段恢复窗口作为下一场事件的 Normal 起点。
+        self._prefall_candidates.clear()
+        self._fall_candidates.clear()
+        self._prefall_consecutive_count = 0
+        self._prefall_age = None
+        self._stable_normal_count = self.profile.stable_normal_frames
+        self._normal_age = 0
+        self._fall_recovery_normal_count = 0
+        self._internal_state = "Normal"
+        return "Normal", "Normal"
 
 
 class TemporalFallValidator:
@@ -623,6 +734,10 @@ class MachineLearningFallPredictor:
         use_accel: bool | None = None,
         use_temporal_fall_validation: bool = True,
         temporal_sensitivity: str | TemporalSensitivityProfile = DEFAULT_TEMPORAL_SENSITIVITY,
+        temporal_gate_stride: int | None = None,
+        allow_warm_start_prefall: bool = True,
+        automatic_fall_recovery: bool = False,
+        fall_validator_settings: Mapping[str, float | int] | None = None,
     ) -> None:
         # 加载训练脚本保存下来的 artifact。
         # 这里会延迟导入 joblib，避免规则版预测也强制依赖 sklearn/joblib。
@@ -630,6 +745,7 @@ class MachineLearningFallPredictor:
 
         # 这些设置必须和训练时一致，否则模型输入的含义会错位。
         self.model = artifact["model"]
+        self._requires_skeleton = bool(artifact.get("requires_skeleton", False))
         self.window_size = int(artifact.get("window_size", DEFAULT_WINDOW_SIZE))
         self.feature_columns = tuple(artifact.get("feature_columns", ML_FEATURE_COLUMNS))
         self.baseline_frames = _resolve_positive_int_setting(
@@ -664,6 +780,10 @@ class MachineLearningFallPredictor:
         # 保存最近 N 帧的特征。deque(maxlen=N) 会自动丢掉最旧的一帧，
         # 非常适合做实时滑动窗口。
         self._window: deque[dict[str, float]] = deque(maxlen=self.window_size)
+        self._raw_window: deque[dict[str, float]] = deque(maxlen=self.window_size)
+        self._skeleton_window: deque[np.ndarray] = deque(maxlen=self.window_size)
+        self._missing_pose_count = 0
+        self._uncalibrated_non_upright_count = 0
 
         # risk_history 只是为了输出 smoothed_risk_score，便于 CSV 和画图保持一致。
         self._risk_history: deque[float] = deque(maxlen=self.smoothing_window)
@@ -690,10 +810,36 @@ class MachineLearningFallPredictor:
         else:
             self._use_accel = bool(artifact.get("use_accel", False))
 
+        self._use_standing_calibration = bool(artifact.get("use_standing_calibration", False))
+        self._use_upper_body_features = bool(artifact.get("use_upper_body_features", False))
+        self._standing_calibrator: StandingFeatureCalibrator | None = None
+        if self._use_standing_calibration:
+            self._standing_calibrator = StandingFeatureCalibrator(
+                baseline_frames=self.baseline_frames,
+                min_visibility=self.min_visibility,
+                allow_upper_body_only_calibration=self._use_upper_body_features,
+            )
+
         self._use_temporal_fall_validation = bool(use_temporal_fall_validation)
-        self._temporal_fall_validator = TemporalFallValidator()
+        # Kept for compatibility with the macOS app's previous predictor API.
+        # The strict TemporalSequenceGate below supersedes the older motion-only
+        # Fall validator, so those legacy thresholds are intentionally ignored.
+        _ = fall_validator_settings
         self.temporal_sensitivity = resolve_temporal_sensitivity_profile(temporal_sensitivity)
-        self._temporal_sequence_gate = TemporalSequenceGate(self.temporal_sensitivity)
+        self.temporal_gate_stride = _resolve_positive_int_setting(
+            artifact=artifact,
+            name="stride",
+            explicit_value=temporal_gate_stride,
+            default_value=DEFAULT_TEMPORAL_GATE_STRIDE,
+        )
+        self._temporal_sequence_gate = TemporalSequenceGate(
+            self.temporal_sensitivity,
+            allow_warm_start_prefall=allow_warm_start_prefall,
+            automatic_fall_recovery=automatic_fall_recovery,
+        )
+        self._last_temporal_gate_frame: int | None = None
+        self._last_temporal_state = "Normal"
+        self._last_temporal_alert = "Normal"
         self._last_state_probabilities: dict[str, float] = {
             "Normal": 1.0,
             "Pre-fall": 0.0,
@@ -713,29 +859,115 @@ class MachineLearningFallPredictor:
     ) -> Prediction:
         # 1. 把当前帧关键点转换成可解释的数值特征。
         features = self.extractor.extract(landmarks, frame_index, timestamp)
+        if self._requires_skeleton:
+            from .skeleton_dataset import landmarks_to_skeleton_frame
+
+            previous_skeleton = self._skeleton_window[-1] if self._skeleton_window else None
+            self._skeleton_window.append(
+                landmarks_to_skeleton_frame(landmarks, previous_frame=previous_skeleton)
+            )
 
         # 2. 更新站立基线，并计算当前身体中心相对基线下降了多少。
         center_drop = self._update_baseline_and_center_drop(features)
 
-        # 3. 把当前帧特征加入滑动窗口。
-        self._window.append(pose_features_to_ml_row(features, center_drop))
+        raw_row = pose_features_to_ml_row(features, center_drop)
 
         # 如果当前帧没有可靠人体姿态，直接返回 Unknown。
         # 这样模型不会在"看不清人"的情况下硬给一个 Normal/Fall。
-        if not features.has_pose or features.visibility_mean < self.min_visibility:
+        has_partial_measurement = features.has_pose and (
+            features.torso_valid
+            or features.center_valid
+            or features.bbox_valid
+            or (self._use_upper_body_features and features.upper_body_valid)
+        )
+        pose_is_usable = (
+            has_partial_measurement
+            if self._use_standing_calibration
+            else features.has_pose and features.visibility_mean >= self.min_visibility
+        )
+        if not pose_is_usable:
             self._prefall_alert_count = 0
-            self._temporal_fall_validator.reset()
-            self._temporal_sequence_gate.reset()
+            self._missing_pose_count += 1
+            if (
+                self._standing_calibrator is not None
+                and self._standing_calibrator.ready
+                and self._missing_pose_count <= DEFAULT_PARTIAL_POSE_GRACE_FRAMES
+                and self._window
+            ):
+                missing_row = self._standing_calibrator.transform(raw_row)
+                self._window.append(missing_row)
+                self._raw_window.append(raw_row)
+                if len(self._window) >= self.window_size:
+                    return self._predict_current_window(
+                        frame_index=frame_index,
+                        timestamp=timestamp,
+                        features=features,
+                        center_drop=center_drop,
+                    )
+            # 短暂丢失姿态不应擦除已经确认的事件链或 Fall 锁存。
+            # 切换视频/重新监测时仍会由 reset() 明确清空时序状态。
+            latched_fall = self._temporal_sequence_gate.fall_latched
             return self._prediction(
                 frame_index=frame_index,
                 timestamp=timestamp,
-                state="Unknown",
+                state="Fall" if latched_fall else "Unknown",
                 instant_state="Unknown",
                 risk_score=0.0,
                 features=features,
                 center_drop=center_drop,
-                alert_state="Unknown",
+                alert_state="Fall" if latched_fall else "Unknown",
+                system_status="Pose lost; Fall alarm remains latched" if latched_fall else None,
             )
+        self._missing_pose_count = 0
+
+        # Robust artifacts first collect a fixed standing reference.  Partial
+        # frames are usable after calibration, but cannot establish the baseline.
+        model_row = raw_row
+        if self._standing_calibrator is not None:
+            raw_posture = _posture_evidence([raw_row])
+            if not self._standing_calibrator.ready and not raw_posture.is_upright_normal:
+                self._uncalibrated_non_upright_count += 1
+                warning_frames = self.temporal_sensitivity.prefall_memory * self.temporal_gate_stride
+                warm_warning = self._uncalibrated_non_upright_count <= warning_frames
+                return self._prediction(
+                    frame_index=frame_index,
+                    timestamp=timestamp,
+                    state="Pre-fall" if warm_warning else "Normal",
+                    instant_state="Unknown",
+                    risk_score=0.5 if warm_warning else 0.0,
+                    features=features,
+                    center_drop=center_drop,
+                    alert_state="Pre-fall" if warm_warning else "Normal",
+                    system_status=(
+                        "Calibration pending: non-upright warm-start warning"
+                        if warm_warning
+                        else "Calibration pending: non-upright posture settled"
+                    ),
+                )
+            self._uncalibrated_non_upright_count = 0
+            calibrated_row = self._standing_calibrator.update_and_transform(raw_row)
+            if calibrated_row is None:
+                return self._prediction(
+                    frame_index=frame_index,
+                    timestamp=timestamp,
+                    state="Normal",
+                    instant_state="Normal",
+                    risk_score=0.0,
+                    features=features,
+                    center_drop=center_drop,
+                    alert_state="Normal",
+                    system_status=(
+                        f"Calibrating: stand still "
+                        f"({self._standing_calibrator.collected_frames}/{self._standing_calibrator.baseline_frames})"
+                    ),
+                )
+            model_row = calibrated_row
+
+        # 3. Keep model-space and raw image-space windows separately.  The model
+        # sees calibrated ratios; the product state gate still sees physical raw
+        # posture values and therefore keeps its existing thresholds meaningful.
+        self._window.append(model_row)
+        self._raw_window.append(raw_row)
 
         # 窗口还没有收集满时，模型没有足够历史信息可看。
         # 例如 window_size=15，则前 14 帧先输出 Normal。
@@ -752,22 +984,57 @@ class MachineLearningFallPredictor:
                 alert_state="Normal",
             )
 
-        # 4. 窗口满了以后，把最近 N 帧展开成一个模型输入样本。
-        # scikit-learn 的 predict/predict_proba 期望输入是二维结构：
-        # [样本1, 样本2, ...]，所以这里外面再套一层 list。
+        return self._predict_current_window(
+            frame_index=frame_index,
+            timestamp=timestamp,
+            features=features,
+            center_drop=center_drop,
+        )
+
+    def _predict_current_window(
+        self,
+        frame_index: int,
+        timestamp: float,
+        features: PoseFeatures,
+        center_drop: float,
+    ) -> Prediction:
+        """Run model + temporal gate on the current calibrated/raw windows."""
         window_list = list(self._window)
         if self._use_accel:
-            window_list = compute_window_accel_features(window_list)
-            feature_cols = ACCEL_FEATURE_COLUMNS
-        else:
-            feature_cols = self.feature_columns
+            base_feature_cols = tuple(
+                column
+                for column in self.feature_columns
+                if column not in {"torso_angular_accel", "vertical_accel"}
+            )
+            window_list = compute_window_accel_features(
+                window_list,
+                base_feature_columns=base_feature_cols,
+            )
+        feature_cols = self.feature_columns
         sample = [flatten_window(window_list, feature_cols)]
+        if self._requires_skeleton:
+            if len(self._skeleton_window) < self.window_size:
+                raise RuntimeError("Skeleton window is shorter than the model feature window")
+            self.model.set_skeleton_window(np.stack(tuple(self._skeleton_window), axis=1))
         model_state, risk_score, model_alert_state = self._predict_sample(sample)
-        state, alert_state = self._apply_temporal_validation(
-            model_state,
-            model_alert_state,
-            window_list,
+        should_update_gate = (
+            self._last_temporal_gate_frame is None
+            or frame_index - self._last_temporal_gate_frame >= self.temporal_gate_stride
         )
+        if not self._use_temporal_fall_validation:
+            state, alert_state = model_state, model_alert_state
+        elif should_update_gate:
+            state, alert_state = self._apply_temporal_validation(
+                model_state,
+                model_alert_state,
+                window_list,
+                list(self._raw_window),
+            )
+            self._last_temporal_gate_frame = frame_index
+            self._last_temporal_state = state
+            self._last_temporal_alert = alert_state
+        else:
+            state, alert_state = self._last_temporal_state, self._last_temporal_alert
         return self._prediction(
             frame_index=frame_index,
             timestamp=timestamp,
@@ -783,25 +1050,41 @@ class MachineLearningFallPredictor:
         """切换新视频或重新开始时，清空所有时序状态。"""
         self.extractor.reset()
         self._window.clear()
+        self._raw_window.clear()
+        self._skeleton_window.clear()
         self._risk_history.clear()
         self._baseline_samples.clear()
         self._baseline_center_y = None
         self._prefall_alert_count = 0
+        self._missing_pose_count = 0
+        self._uncalibrated_non_upright_count = 0
         if self._hmm is not None:
             self._hmm.reset()
-        self._temporal_fall_validator.reset()
+        if self._standing_calibrator is not None:
+            self._standing_calibrator.reset()
         self._temporal_sequence_gate.reset()
+        self._last_temporal_gate_frame = None
+        self._last_temporal_state = "Normal"
+        self._last_temporal_alert = "Normal"
         self._last_state_probabilities = {
             "Normal": 1.0,
             "Pre-fall": 0.0,
             "Fall": 0.0,
         }
 
+    def acknowledge_fall(self) -> None:
+        """Acknowledge a latched Fall without discarding calibration/windows."""
+        self._temporal_sequence_gate.acknowledge_fall()
+        self._last_temporal_gate_frame = None
+        self._last_temporal_state = "Normal"
+        self._last_temporal_alert = "Normal"
+
     def _apply_temporal_validation(
         self,
         model_state: str,
         model_alert_state: str,
         window_list: Sequence[dict[str, float]],
+        temporal_window_list: Sequence[dict[str, float]] | None = None,
     ) -> tuple[str, str]:
         if not self._use_temporal_fall_validation:
             return model_state, model_alert_state
@@ -809,7 +1092,7 @@ class MachineLearningFallPredictor:
             model_state,
             model_alert_state,
             self._last_state_probabilities,
-            window_list,
+            temporal_window_list if temporal_window_list is not None else window_list,
         )
 
     def _update_baseline_and_center_drop(self, features: PoseFeatures) -> float:
@@ -819,7 +1102,7 @@ class MachineLearningFallPredictor:
         body_center_y 是归一化图像坐标，y 越大表示越靠下。
         如果当前身体中心比初始站立基线更靠下，就认为出现了下降。
         """
-        if features.has_pose and self._baseline_center_y is None:
+        if features.center_valid and self._baseline_center_y is None:
             self._baseline_samples.append(features.body_center_y)
             if len(self._baseline_samples) >= self.baseline_frames:
                 self._baseline_center_y = mean(self._baseline_samples)
@@ -928,6 +1211,7 @@ class MachineLearningFallPredictor:
         features: PoseFeatures,
         center_drop: float,
         alert_state: str | None = None,
+        system_status: str | None = None,
     ) -> Prediction:
         """
         把 ML 预测结果包装成项目统一的 Prediction 对象。
@@ -962,17 +1246,31 @@ class MachineLearningFallPredictor:
             ),
             baseline_center_y=self._baseline_center_y,
             alert_state=alert_state or state,
+            system_status=system_status,
         )
 
 
 def load_model_artifact(model_path: str | Path) -> dict:
     """
-    加载 joblib 模型文件。
+    加载传统 joblib 或 PyTorch TCN 模型文件。
 
     为了兼容以后你可能保存"裸模型"的情况：
     - 如果加载出来是 dict，就按 train_model.py 保存的 artifact 使用；
     - 如果加载出来不是 dict，就当作旧格式裸模型，并补默认元数据。
     """
+    model_path = Path(model_path)
+    if model_path.suffix.lower() in {".pt", ".pth"}:
+        from .deep_model import load_deep_model_artifact
+        from .fusion_model import load_fusion_model_artifact
+
+        try:
+            return load_deep_model_artifact(model_path)
+        except RuntimeError as deep_error:
+            try:
+                return load_fusion_model_artifact(model_path)
+            except RuntimeError:
+                raise deep_error
+
     try:
         import joblib
     except ImportError as exc:
@@ -1141,26 +1439,46 @@ def _posture_evidence(window_rows: Sequence[Mapping[str, object]]) -> PostureEvi
             is_upright_normal=False,
         )
 
-    mean_body_height = mean(_row_float(row, "body_height") for row in pose_rows)
-    mean_aspect_ratio = mean(_row_float(row, "aspect_ratio") for row in pose_rows)
-    mean_center_drop = mean(_row_float(row, "center_drop") for row in pose_rows)
-    mean_torso_angle = mean(abs(_row_float(row, "torso_angle")) for row in pose_rows)
-    mean_abs_vertical_velocity = mean(abs(_row_float(row, "vertical_velocity")) for row in pose_rows)
+    bbox_rows = [row for row in pose_rows if _row_float(row, "bbox_valid", 1.0) > 0.0]
+    center_rows = [row for row in pose_rows if _row_float(row, "center_valid", 1.0) > 0.0]
+    torso_rows = [row for row in pose_rows if _row_float(row, "torso_valid", 1.0) > 0.0]
 
-    is_low_horizontal = (
+    mean_body_height = mean(_row_float(row, "body_height") for row in bbox_rows) if bbox_rows else 0.0
+    mean_aspect_ratio = mean(_row_float(row, "aspect_ratio") for row in bbox_rows) if bbox_rows else 0.0
+    mean_center_drop = mean(_row_float(row, "center_drop") for row in center_rows) if center_rows else 0.0
+    mean_torso_angle = (
+        mean(abs(_row_float(row, "torso_angle")) for row in torso_rows) if torso_rows else 0.0
+    )
+    mean_abs_vertical_velocity = (
+        mean(abs(_row_float(row, "vertical_velocity")) for row in center_rows)
+        if center_rows
+        else 0.0
+    )
+
+    is_low_horizontal = bool(bbox_rows) and (
         (mean_body_height <= 0.24 and mean_aspect_ratio >= 0.55)
         or (mean_body_height <= 0.32 and mean_aspect_ratio >= 0.85)
-        or (mean_center_drop >= 0.24 and mean_aspect_ratio >= 0.65)
+        or (bool(center_rows) and mean_center_drop >= 0.24 and mean_aspect_ratio >= 0.65)
     )
     is_low_posture = (
         is_low_horizontal
-        or (mean_body_height <= 0.38 and mean_center_drop >= 0.10)
-        or mean_body_height <= 0.34
-        or mean_aspect_ratio >= 0.75
+        or (
+            bool(bbox_rows)
+            and bool(center_rows)
+            and mean_body_height <= 0.38
+            and mean_center_drop >= 0.10
+        )
+        or (bool(bbox_rows) and mean_body_height <= 0.34)
+        or (bool(bbox_rows) and mean_aspect_ratio >= 0.75)
     )
-    is_static_low_posture = is_low_posture and mean_abs_vertical_velocity <= 0.25
+    is_static_low_posture = is_low_posture and (
+        not center_rows or mean_abs_vertical_velocity <= 0.25
+    )
     is_upright_normal = (
-        mean_body_height >= 0.42
+        bool(bbox_rows)
+        and bool(center_rows)
+        and bool(torso_rows)
+        and mean_body_height >= 0.42
         and mean_aspect_ratio <= 0.60
         and mean_center_drop <= 0.12
         and mean_torso_angle <= 25.0
@@ -1281,9 +1599,9 @@ def _positive_delta(rows: Sequence[Mapping[str, object]], key: str) -> list[floa
     return [max(0.0, value) for value in _delta(rows, key)]
 
 
-def _row_float(row: Mapping[str, object], key: str) -> float:
+def _row_float(row: Mapping[str, object], key: str, default: float = 0.0) -> float:
     try:
-        value = float(row.get(key, 0.0))
+        value = float(row.get(key, default))
     except (TypeError, ValueError):
         return 0.0
     if not np.isfinite(value):

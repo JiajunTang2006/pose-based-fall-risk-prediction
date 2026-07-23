@@ -530,7 +530,7 @@ class TemporalSequenceGateTest(unittest.TestCase):
             ("Fall", "Fall"),
         )
 
-        # Normal/Fall 抖动持续超过最短保持期，也不能解除 Fall。
+
         for index in range(50):
             if index % 2 == 0:
                 result = gate.validate("Normal", "Normal", normal_probs, standing_rows())
@@ -538,7 +538,7 @@ class TemporalSequenceGateTest(unittest.TestCase):
                 result = gate.validate("Fall", "Fall", fall_probs, lying_rows())
             self.assertEqual(result, ("Fall", "Fall"))
 
-        # 只有连续足够多的 Normal 窗口才确认恢复。
+
         for _ in range(gate.profile.fall_recovery_normal_frames - 1):
             self.assertEqual(
                 gate.validate("Normal", "Normal", normal_probs, standing_rows()),
@@ -549,7 +549,7 @@ class TemporalSequenceGateTest(unittest.TestCase):
             ("Normal", "Normal"),
         )
 
-        # 恢复后若没有新的 Pre-fall，不能再次直接进入 Fall。
+
         self.assertEqual(
             gate.validate("Fall", "Fall", fall_probs, lying_rows()),
             ("Normal", "Normal"),

@@ -1,20 +1,4 @@
-"""
-使用训练好的机器学习模型进行逐帧预测。
 
-这个文件负责"模型上线推理"，和 train_model.py 正好对应：
-
-    train_model.py:
-        读取很多 CSV -> 切窗口 -> 训练模型 -> 保存 joblib 文件
-
-    ml_predictor.py:
-        读取一帧视频 -> 提取特征 -> 放进最近 N 帧窗口
-        -> 窗口满了之后调用模型预测 -> 返回 Prediction
-
-为了让 video_app.py 不需要关心背后是规则系统还是 ML 系统，
-MachineLearningFallPredictor 的 predict() 方法返回的也是 Prediction 对象。
-
-从 Stage 2 开始，增加了可选的 HMM Viterbi 时序平滑层。
-"""
 
 from __future__ import annotations
 
@@ -51,10 +35,10 @@ DEFAULT_CONTROLLED_UPRIGHT_ANGULAR_VELOCITY = 100.0
 DEFAULT_CONTROLLED_UPRIGHT_CENTER_DROP_DELTA = 0.10
 NORMAL_STATES = {"Normal"}
 
-# HMM 默认参数
-DEFAULT_HMM_BUFFER_SIZE = 25  # 用于 Viterbi 解码的概率历史长度
 
-# 时序 Fall 确认层默认阈值。它只用于运行时减少“稳定躺着被判 Fall”的误报。
+DEFAULT_HMM_BUFFER_SIZE = 25
+
+
 DEFAULT_FALL_VALIDATION_HISTORY = 30
 DEFAULT_FALL_PREFALL_MEMORY = 12
 DEFAULT_FALL_HOLD_FRAMES = 45
@@ -162,7 +146,7 @@ def resolve_temporal_sensitivity_profile(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# HMM Viterbi 时序平滑层
+
 # ═══════════════════════════════════════════════════════════════════════
 
 def build_hmm_transition_matrix(
@@ -174,36 +158,18 @@ def build_hmm_transition_matrix(
     prefall_to_normal: float = 0.08,
     fall_to_prefall: float = 0.10,
 ) -> np.ndarray:
-    """
-    构建 3×3 转移矩阵 T[i][j] = P(state_j at t+1 | state_i at t).
 
-    状态顺序: 0=Normal, 1=Pre-fall, 2=Fall
-
-    物理约束:
-      - Normal → Fall   概率极低 (≤0.01), 不能跳过 Pre-fall 直接倒地
-      - Fall   → Normal 概率极低 (≤0.02), 不能瞬间恢复站立
-      - Normal → Pre-fall 允许 (0.07), 对应开始失衡
-      - Pre-fall → Fall 允许 (0.12), 对应过渡完成
-    """
     T = np.zeros((3, 3))
     T[0] = [stay_normal, normal_to_prefall, max(0.0, 1.0 - stay_normal - normal_to_prefall)]
     T[1] = [prefall_to_normal, stay_prefall, prefall_to_fall]
     T[2] = [max(0.0, 1.0 - stay_fall - fall_to_prefall), fall_to_prefall, stay_fall]
-    # 确保行归一化
+
     T = T / T.sum(axis=1, keepdims=True)
     return T
 
 
 class HMMStateSmoother:
-    """
-    基于 Viterbi 解码的时序状态平滑器。
 
-    维护一个概率历史缓冲区，当缓冲区满时运行 Viterbi 解码
-    找到最可能的状态序列，输出平滑后的最后一帧状态。
-
-    这可以消除模型独立 argmax 产生的物理不可能跳变
-    （如 Normal→Fall→Normal），并减少单帧误判导致的假警报。
-    """
 
     def __init__(
         self,
@@ -220,41 +186,30 @@ class HMMStateSmoother:
         self._initial_probs = (
             initial_probs if initial_probs is not None else [0.98, 0.02, 0.0]
         )
-        # 概率缓冲区: 每个元素是 [P(Normal), P(Pre-fall), P(Fall)]
+
         self._prob_buffer: deque[list[float]] = deque(maxlen=self._buffer_size)
         self._state_idx = {0: "Normal", 1: "Pre-fall", 2: "Fall"}
 
     def reset(self) -> None:
-        """清空概率历史。"""
+
         self._prob_buffer.clear()
 
     def smooth(self, probabilities: list[float]) -> str:
-        """
-        输入当前帧的三类概率，返回平滑后的状态。
 
-        probabilities: [P(Normal), P(Pre-fall), P(Fall)]
-
-        当缓冲区未满时，直接返回 argmax 状态；
-        缓冲区满后，运行 Viterbi 解码返回最优路径的最后一帧状态。
-        """
         self._prob_buffer.append(list(probabilities))
 
         if len(self._prob_buffer) < self._buffer_size:
-            # 缓冲未满: 退化到 argmax
+
             idx = max(range(len(probabilities)), key=lambda i: probabilities[i])
             return self._state_idx[idx]
 
-        # 运行 Viterbi
+
         obs = list(self._prob_buffer)
         state_seq = self._viterbi(obs)
         return self._state_idx[state_seq[-1]]
 
     def _viterbi(self, observations: list[list[float]]) -> list[int]:
-        """
-        对概率观测序列做 Viterbi 解码。
 
-        在对数空间中计算，避免浮点下溢。
-        """
         n_states = 3
         T_len = len(observations)
         if T_len == 0:
@@ -266,12 +221,12 @@ class HMMStateSmoother:
         dp = np.full((T_len, n_states), -np.inf)
         bp = np.zeros((T_len, n_states), dtype=int)
 
-        # 初始化
+
         for j in range(n_states):
             obs_prob = max(observations[0][j], 1e-12)
             dp[0][j] = log_init[j] + np.log(obs_prob)
 
-        # 递推
+
         for t in range(1, T_len):
             for j in range(n_states):
                 scores = dp[t - 1] + log_T[:, j]
@@ -279,7 +234,7 @@ class HMMStateSmoother:
                 dp[t][j] = scores[best_i] + np.log(max(observations[t][j], 1e-12))
                 bp[t][j] = best_i
 
-        # 回溯
+
         states = [0] * T_len
         states[T_len - 1] = int(np.argmax(dp[T_len - 1]))
         for t in range(T_len - 2, -1, -1):
@@ -289,7 +244,7 @@ class HMMStateSmoother:
 
 @dataclass(frozen=True)
 class FallMotionEvidence:
-    """最近窗口里用于确认 Fall 的动态证据。"""
+
 
     max_vertical_velocity: float
     max_vertical_accel: float
@@ -384,9 +339,8 @@ class TemporalSequenceGate:
         probabilities: Mapping[str, float],
         window_rows: Sequence[dict[str, float]],
     ) -> tuple[str, str]:
-        # Fall 是一个已确认事件，而不是每个窗口重新投票的姿态标签。
-        # 默认只能由操作员确认解除；显式开启自动恢复时也必须看到持续、
-        # 可靠直立的 Normal，单个 Normal 抖动不能解除报警。
+
+
         posture = _posture_evidence(window_rows)
         motion = _motion_evidence(window_rows)
 
@@ -420,8 +374,8 @@ class TemporalSequenceGate:
             and fall_probability >= self.profile.fall_probability_threshold
         )
         raw_fall = not controlled_upright and (classified_fall or probability_fall_candidate)
-        # 当前已经是 Fall 的窗口不能反过来充当它自己的 Pre-fall 历史。
-        # Pre-fall 必须来自严格更早的独立窗口。
+
+
         raw_prefall = (
             not controlled_upright
             and not raw_fall
@@ -468,8 +422,8 @@ class TemporalSequenceGate:
         self._update_prefall_memory(valid_prefall)
 
         has_prefall_context = self._has_recent_prefall() or self._prefall_is_confirmed()
-        # Fall 必须严格来自已经确认的 Normal -> Pre-fall 历史。
-        # 仅有 Normal、强运动或持续的 Fall 分类都不能绕过 Pre-fall。
+
+
         valid_fall_candidate = raw_fall and has_prefall_context and self._has_recent_normal()
         self._fall_candidates.append(valid_fall_candidate)
 
@@ -572,8 +526,7 @@ class TemporalSequenceGate:
         if self._fall_recovery_normal_count < self.profile.fall_recovery_normal_frames:
             return "Fall", "Fall"
 
-        # 持续 Normal 才代表一次明确恢复。清掉上一场跌倒的 Pre-fall/Fall
-        # 记忆，同时把这段恢复窗口作为下一场事件的 Normal 起点。
+
         self._prefall_candidates.clear()
         self._fall_candidates.clear()
         self._prefall_consecutive_count = 0
@@ -586,21 +539,7 @@ class TemporalSequenceGate:
 
 
 class TemporalFallValidator:
-    """
-    运行时 Fall 时序确认层。
 
-    三分类模型仍然输出 Normal / Pre-fall / Fall，但 Fall 需要满足更保守的
-    时序 + 动态组合证据才确认：
-    - Pre-fall 可以保持敏感，用于提前提醒；
-    - Fall 前必须在近期看到 Pre-fall 证据，最好是 Normal -> Pre-fall 的状态过渡；
-    - 当前窗口必须已经被模型/HMM 判为 Fall；
-    - Fall 还必须看到快速下落和冲击/下降证据，或者在 Pre-fall 后连续多个窗口被判为 Fall；
-    - 未确认的 Fall 会按证据强弱降级成 Pre-fall 或 Normal；
-    - Fall 一旦确认，会保持一小段时间，减少 Fall/Normal 抖动。
-
-    如果一个人一开始就稳定躺着，模型可能因为静态姿态像倒地而输出 Fall。
-    这时窗口里通常没有“下落/失衡过程”，这里会把 Fall 降回 Normal。
-    """
 
     def __init__(
         self,
@@ -709,17 +648,7 @@ class TemporalFallValidator:
 
 
 class MachineLearningFallPredictor:
-    """
-    基于滑动窗口的机器学习跌倒预测器。
 
-    model_path 指向 train_model.py 保存的 joblib 文件。
-    这个 joblib 不是只有模型本身，还包含一些推理时必须一致的元数据：
-
-    - model: scikit-learn 分类器
-    - window_size: 训练时每个样本用了多少帧
-    - feature_columns: 训练时使用了哪些特征列，以及列顺序
-    - baseline_frames: 计算 center_drop 时使用多少帧建立初始站立基线
-    """
 
     def __init__(
         self,
@@ -739,11 +668,11 @@ class MachineLearningFallPredictor:
         automatic_fall_recovery: bool = False,
         fall_validator_settings: Mapping[str, float | int] | None = None,
     ) -> None:
-        # 加载训练脚本保存下来的 artifact。
-        # 这里会延迟导入 joblib，避免规则版预测也强制依赖 sklearn/joblib。
+
+
         artifact = load_model_artifact(model_path)
 
-        # 这些设置必须和训练时一致，否则模型输入的含义会错位。
+
         self.model = artifact["model"]
         self._requires_skeleton = bool(artifact.get("requires_skeleton", False))
         self.window_size = int(artifact.get("window_size", DEFAULT_WINDOW_SIZE))
@@ -774,37 +703,33 @@ class MachineLearningFallPredictor:
         )
         self.min_visibility = min_visibility
 
-        # FeatureExtractor 和规则版一样：负责从 MediaPipe 关键点计算单帧运动特征。
+
         self.extractor = FeatureExtractor(min_visibility=min_visibility)
 
-        # 保存最近 N 帧的特征。deque(maxlen=N) 会自动丢掉最旧的一帧，
-        # 非常适合做实时滑动窗口。
+
         self._window: deque[dict[str, float]] = deque(maxlen=self.window_size)
         self._raw_window: deque[dict[str, float]] = deque(maxlen=self.window_size)
         self._skeleton_window: deque[np.ndarray] = deque(maxlen=self.window_size)
         self._missing_pose_count = 0
         self._uncalibrated_non_upright_count = 0
 
-        # risk_history 只是为了输出 smoothed_risk_score，便于 CSV 和画图保持一致。
+
         self._risk_history: deque[float] = deque(maxlen=self.smoothing_window)
 
-        # center_drop 需要知道"正常站立时身体中心大概在哪里"。
-        # 所以前几帧会先收集 baseline，再计算后续身体下降量。
+
         self._baseline_samples: list[float] = []
         self._baseline_center_y: float | None = None
 
-        # 报警策略单独计数：分类 state 保持模型 argmax，alert_state 可以更早提醒。
+
         self._prefall_alert_count = 0
 
-        # HMM 时序平滑（可选）
+
         self._use_hmm = bool(use_hmm)
         self._hmm: HMMStateSmoother | None = None
         if self._use_hmm:
             self._hmm = HMMStateSmoother(buffer_size=hmm_buffer_size)
-            # 如果模型已保存 prefall_alert_threshold，可适当降低 alert 阈值
-            # 因为 HMM 已经抑制了假阳
 
-        # 加速度特征：显式参数优先，未提供时从 artifact 自动检测
+
         if use_accel is not None:
             self._use_accel = bool(use_accel)
         else:
@@ -848,7 +773,7 @@ class MachineLearningFallPredictor:
 
     @property
     def baseline_center_y(self) -> float | None:
-        """返回当前已经建立好的身体中心基线；未建立好时返回 None。"""
+
         return self._baseline_center_y
 
     def predict(
@@ -857,7 +782,7 @@ class MachineLearningFallPredictor:
         frame_index: int,
         timestamp: float,
     ) -> Prediction:
-        # 1. 把当前帧关键点转换成可解释的数值特征。
+
         features = self.extractor.extract(landmarks, frame_index, timestamp)
         if self._requires_skeleton:
             from .skeleton_dataset import landmarks_to_skeleton_frame
@@ -867,13 +792,12 @@ class MachineLearningFallPredictor:
                 landmarks_to_skeleton_frame(landmarks, previous_frame=previous_skeleton)
             )
 
-        # 2. 更新站立基线，并计算当前身体中心相对基线下降了多少。
+
         center_drop = self._update_baseline_and_center_drop(features)
 
         raw_row = pose_features_to_ml_row(features, center_drop)
 
-        # 如果当前帧没有可靠人体姿态，直接返回 Unknown。
-        # 这样模型不会在"看不清人"的情况下硬给一个 Normal/Fall。
+
         has_partial_measurement = features.has_pose and (
             features.torso_valid
             or features.center_valid
@@ -904,8 +828,8 @@ class MachineLearningFallPredictor:
                         features=features,
                         center_drop=center_drop,
                     )
-            # 短暂丢失姿态不应擦除已经确认的事件链或 Fall 锁存。
-            # 切换视频/重新监测时仍会由 reset() 明确清空时序状态。
+
+
             latched_fall = self._temporal_sequence_gate.fall_latched
             return self._prediction(
                 frame_index=frame_index,
@@ -969,8 +893,7 @@ class MachineLearningFallPredictor:
         self._window.append(model_row)
         self._raw_window.append(raw_row)
 
-        # 窗口还没有收集满时，模型没有足够历史信息可看。
-        # 例如 window_size=15，则前 14 帧先输出 Normal。
+
         if len(self._window) < self.window_size:
             self._prefall_alert_count = 0
             return self._prediction(
@@ -1047,7 +970,7 @@ class MachineLearningFallPredictor:
         )
 
     def reset(self) -> None:
-        """切换新视频或重新开始时，清空所有时序状态。"""
+
         self.extractor.reset()
         self._window.clear()
         self._raw_window.clear()
@@ -1096,12 +1019,7 @@ class MachineLearningFallPredictor:
         )
 
     def _update_baseline_and_center_drop(self, features: PoseFeatures) -> float:
-        """
-        更新站立基线，并返回身体下降量 center_drop。
 
-        body_center_y 是归一化图像坐标，y 越大表示越靠下。
-        如果当前身体中心比初始站立基线更靠下，就认为出现了下降。
-        """
         if features.center_valid and self._baseline_center_y is None:
             self._baseline_samples.append(features.body_center_y)
             if len(self._baseline_samples) >= self.baseline_frames:
@@ -1115,46 +1033,32 @@ class MachineLearningFallPredictor:
         return max(0.0, features.body_center_y - baseline)
 
     def _predict_sample(self, sample: list[list[float]]) -> tuple[str, float, str]:
-        """
-        调用 scikit-learn 模型预测一个窗口样本。
 
-        返回:
-            state:
-                Normal / Pre-fall / Fall 等状态字符串。
-                如果启用了 HMM，这是经过 Viterbi 平滑后的状态。
-
-            risk_score:
-                用概率近似出来的风险值，主要用于画图和 CSV 分析。
-
-            alert_state:
-                运行时报警状态。它允许比 state 更敏感，但不会改掉模型原始分类。
-                HMM 启用时，alert_state 也从平滑后的概率计算。
-        """
         if hasattr(self.model, "predict_proba"):
             probabilities = self.model.predict_proba(sample)[0]
             classes = [str(label) for label in self.model.classes_]
             self._last_state_probabilities = _state_probabilities(classes, probabilities)
 
-            # 如果启用了 HMM，用 Viterbi 平滑后的状态替代独立 argmax
+
             if self._use_hmm and self._hmm is not None:
-                # 将概率按 [Normal, Pre-fall, Fall] 顺序传入 HMM。
-                # 当前主流程只保留三分类输出。
+
+
                 hmm_probs = [
                     _normal_probability(classes, probabilities),
                     _state_probability(classes, probabilities, "Pre-fall"),
                     _state_probability(classes, probabilities, "Fall"),
                 ]
                 state = self._hmm.smooth(hmm_probs)
-                # 用平滑后的状态重新计算风险分数和报警
+
                 risk_score = _fall_probability(classes, probabilities)
                 alert_state = self._alert_state_from_probabilities(state, classes, probabilities)
                 return state, risk_score, alert_state
 
-            # 没有 HMM：独立 argmax
+
             best_index = max(range(len(probabilities)), key=lambda index: probabilities[index])
             state = normalize_state(classes[best_index])
 
-            # 风险分数不一定等于最终类别，而是把和跌倒相关的概率合成一个 0~1 值。
+
             risk_score = _fall_probability(classes, probabilities)
             alert_state = self._alert_state_from_probabilities(state, classes, probabilities)
             return state, risk_score, alert_state
@@ -1176,14 +1080,7 @@ class MachineLearningFallPredictor:
         classes: Sequence[str],
         probabilities: Sequence[float],
     ) -> str:
-        """
-        从模型概率里生成更适合实时显示的报警状态。
 
-        state 仍然是模型概率最高的类别；alert_state 只是预警层：
-        - Fall / Pre-fall 已经是最高概率时，直接报警；
-        - Normal-like 安全子类最高但 Pre-fall 概率持续偏高时，提前显示 Pre-fall；
-        - 其他情况保持原状态。
-        """
         if state == "Fall":
             self._prefall_alert_count = 0
             return "Fall"
@@ -1213,17 +1110,7 @@ class MachineLearningFallPredictor:
         alert_state: str | None = None,
         system_status: str | None = None,
     ) -> Prediction:
-        """
-        把 ML 预测结果包装成项目统一的 Prediction 对象。
 
-        video_app.py 后续会用 Prediction 来：
-        - 写 CSV
-        - 绘制状态文字
-        - 绘制风险曲线
-
-        因为 ML 模型没有规则系统那种 torso_score、center_drop_score 等子分数，
-        所以 RiskBreakdown 里的子分数字段填 0，只保留总风险和 center_drop。
-        """
         self._risk_history.append(risk_score)
         smoothed_risk = mean(self._risk_history) if self._risk_history else 0.0
         return Prediction(
@@ -1251,13 +1138,7 @@ class MachineLearningFallPredictor:
 
 
 def load_model_artifact(model_path: str | Path) -> dict:
-    """
-    加载传统 joblib 或 PyTorch TCN 模型文件。
 
-    为了兼容以后你可能保存"裸模型"的情况：
-    - 如果加载出来是 dict，就按 train_model.py 保存的 artifact 使用；
-    - 如果加载出来不是 dict，就当作旧格式裸模型，并补默认元数据。
-    """
     model_path = Path(model_path)
     if model_path.suffix.lower() in {".pt", ".pth"}:
         from .deep_model import load_deep_model_artifact
@@ -1275,7 +1156,8 @@ def load_model_artifact(model_path: str | Path) -> dict:
         import joblib
     except ImportError as exc:
         raise RuntimeError(
-            "ML 预测需要 joblib。请先运行：python -m pip install -r requirements.txt"
+            "ML prediction requires joblib. Install dependencies with: "
+            "python -m pip install -r requirements.txt"
         ) from exc
 
     artifact = joblib.load(model_path)
@@ -1290,19 +1172,12 @@ def load_model_artifact(model_path: str | Path) -> dict:
             "prefall_alert_consecutive_frames": DEFAULT_PREFALL_ALERT_CONSECUTIVE_FRAMES,
         }
     if "model" not in artifact:
-        raise RuntimeError(f"模型文件中缺少 'model' 字段: {model_path}")
+        raise RuntimeError(f"Model artifact is missing the 'model' field: {model_path}")
     return artifact
 
 
 def normalize_state(label: str) -> str:
-    """
-    把不同数据集/模型可能输出的标签统一成应用内部状态。
 
-    例如：
-        1、fall、Fall       -> Fall
-        0、normal、adl      -> Normal
-        prefall、pre-fall   -> Pre-fall
-    """
     cleaned = label.strip()
     lower = cleaned.lower().replace("_", "-")
     if lower in {"1", "fall", "fallen"}:
@@ -1548,12 +1423,7 @@ def _state_probabilities(classes: Sequence[str], probabilities: Sequence[float])
 
 
 def _fall_probability(classes: Sequence[str], probabilities: Sequence[float]) -> float:
-    """
-    根据分类概率估算一个 0~1 的跌倒风险分数。
 
-    如果类别是 Fall，完整计入风险；
-    如果类别是 Pre-fall，只按 0.5 权重计入，因为它表示风险升高但还未倒地。
-    """
     fall_prob = 0.0
     for label, probability in zip(classes, probabilities):
         state = normalize_state(label)

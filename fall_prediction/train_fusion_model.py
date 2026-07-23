@@ -69,13 +69,13 @@ def main() -> None:
         "--prefall-recall-floor",
         type=float,
         default=0.80,
-        help="校准报警阈值时要求的最低Pre-fall召回率，默认0.80。",
+        help="Minimum Pre-fall recall required when calibrating the alert threshold (default: 0.80).",
     )
     parser.add_argument(
         "--probability-temperature",
         type=float,
         default=None,
-        help="显式概率温度；有验证集时默认自动拟合。",
+        help="Explicit probability temperature; fitted automatically when validation data is available.",
     )
     args = parser.parse_args()
 

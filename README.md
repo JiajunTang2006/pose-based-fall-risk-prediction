@@ -26,7 +26,7 @@ The project predicts three states—**Normal**, **Pre-fall**, and **Fall**—fro
 
 The runtime exposes two channels: a precision-oriented **final confirmed** state and a recall-oriented **early warning** advisory.
 
-![System overview](figures/readme/system_overview.svg)
+![System overview](figures/readme/systemoverview.png)
 
 ## Development Timeline
 

@@ -9,7 +9,7 @@
 ![Algorithm tests](https://img.shields.io/badge/algorithm%20tests-104%20passed-2EA44F)
 ![macOS tests](https://img.shields.io/badge/macOS%20tests-106%20passed-2EA44F)
 
-[Results](#results) · [Datasets](#datasets) · [Reproduction](#reproduction) · [Runtime inference](#runtime-inference) · [macOS app](#macos-app)
+[Evolution](#development-timeline) · [Results](#results) · [Datasets](#datasets) · [Reproduction](#reproduction) · [Runtime inference](#runtime-inference) · [macOS app](#macos-app)
 
 </div>
 
@@ -27,6 +27,14 @@ The project predicts three states—**Normal**, **Pre-fall**, and **Fall**—fro
 The runtime exposes two channels: a precision-oriented **final confirmed** state and a recall-oriented **early warning** advisory.
 
 ![System overview](figures/readme/system_overview.svg)
+
+## Development Timeline
+
+- **2026.06.15–2026.07.08 — Initial prototype:** Built the first three-state fall-risk pipeline using UR Fall and UP-Fall, combining YOLO Pose, temporal motion features, a tree-based classifier, HMM smoothing, and a Python-based macOS demo.
+
+- **2026.07.23 — Major algorithm and architecture upgrade:** Evolved the original tree-model baseline into a cooperative dual-model system combining HistGradientBoosting with an ST-GCN + causal TCN deep-learning network, while adding robustness handling, leakage-aware grouped five-fold evaluation, and a native SwiftUI client backed by a local Python service.
+
+- **2026.08.06 — Reproducible public release:** Finalized the macOS application and reproducibility workflow, improved the documentation and dataset guidance, removed obsolete artifacts, and merged the reviewed project into `main`.
 
 ## Results
 

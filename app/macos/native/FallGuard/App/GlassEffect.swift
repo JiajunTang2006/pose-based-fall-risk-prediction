@@ -1,26 +1,12 @@
 import SwiftUI
 import AppKit
 
-// MARK: - NSVisualEffectView Wrapper
-
-/// Authentic macOS frosted glass backed by ``NSVisualEffectView``.
-///
-/// Use ``GlassEffect`` when you need the material to blur content
-/// *behind the window* (sidebar glass) — something SwiftUI's native
-/// `.material` backgrounds cannot do.
-///
-/// For in-window blur (cards, panels), prefer the native
-/// `.background(.regularMaterial, in: shape)` modifier.
 struct GlassEffect: NSViewRepresentable {
 
-    /// The material style (`.sidebar`, `.menu`, `.hudWindow`, etc.).
     var material: NSVisualEffectView.Material = .sidebar
 
-    /// `.behindWindow` blurs the desktop / other windows.
-    /// `.withinWindow` blurs content behind this view inside the window.
     var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
 
-    /// `.active` (default), `.inactive`, or `.followsWindowActiveState`.
     var state: NSVisualEffectView.State = .active
 
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -40,14 +26,8 @@ struct GlassEffect: NSViewRepresentable {
     }
 }
 
-// MARK: - Convenience View Modifiers
-
 extension View {
 
-    /// Authentic macOS sidebar glass — blurs the desktop wallpaper
-    /// and other windows behind the sidebar.
-    ///
-    /// Use this for the navigation sidebar and settings sidebar.
     func glassSidebar() -> some View {
         self.background(GlassEffect(
             material: .sidebar,
@@ -55,18 +35,6 @@ extension View {
         ).allowsHitTesting(false))
     }
 
-    /// Apple **Liquid Glass** surface (macOS 26+).
-    ///
-    /// On macOS 26 and later this uses the native `.glassEffect(_:in:)`
-    /// modifier — the real Liquid Glass material that refracts and
-    /// reflects the content behind it.  On earlier systems it gracefully
-    /// falls back to the existing frosted-glass surface so the app still
-    /// builds and looks right on the macOS 12 deployment target.
-    ///
-    /// - Parameters:
-    ///   - cornerRadius: corner radius of the glass shape.
-    ///   - tint: optional accent tint blended into the glass.
-    ///   - interactive: whether the glass reacts to press/hover (buttons).
     @ViewBuilder
     func liquidGlass(
         cornerRadius: CGFloat = FallGuardRadius.lg,
@@ -80,7 +48,6 @@ extension View {
                 in: shape
             )
         } else {
-            // Fallback: existing frosted surface with an optional tint wash.
             self
                 .glassSurface(cornerRadius: cornerRadius)
                 .overlay(
@@ -91,8 +58,6 @@ extension View {
         }
     }
 
-    /// Builds the configured `Glass` value outside of any `@ViewBuilder`
-    /// context (where plain statements would be mis-parsed as views).
     @available(macOS 26.0, *)
     private static func makeGlass(tint: Color?, interactive: Bool) -> Glass {
         var glass: Glass = .regular
@@ -101,10 +66,6 @@ extension View {
         return glass
     }
 
-    /// In-window frosted glass for card panels.
-    ///
-    /// Uses SwiftUI's native `.regularMaterial` for within-window blur
-    /// of the content behind the card.
     func glassCard(cornerRadius: CGFloat = FallGuardRadius.xl) -> some View {
         self.background(
             GlassPanelBackground(cornerRadius: cornerRadius, material: .regular)
@@ -112,7 +73,6 @@ extension View {
         )
     }
 
-    /// Subtle glass for toolbar and header areas.
     func glassHeader() -> some View {
         self.background(
             GlassHeaderBackground()
@@ -120,7 +80,6 @@ extension View {
         )
     }
 
-    /// Lightweight frosted surface — thinner than glassCard.
     func glassSurface(cornerRadius: CGFloat = FallGuardRadius.lg) -> some View {
         self.background(
             GlassPanelBackground(cornerRadius: cornerRadius, material: .thin)
@@ -179,11 +138,6 @@ private struct GlassHeaderBackground: View {
     }
 }
 
-// MARK: - Glass-Friendly Separator
-
-/// A subtle divider designed to sit on top of glass backgrounds.
-/// Slightly more opaque than the standard divider so it remains
-/// visible against the blurred material.
 struct GlassDivider: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -196,7 +150,6 @@ struct GlassDivider: View {
     }
 }
 
-/// Vertical counterpart used between sidebars and content columns.
 struct GlassVerticalDivider: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -210,19 +163,12 @@ struct GlassVerticalDivider: View {
     }
 }
 
-// MARK: - Brand Mark (green figure)
-
-/// Vector rendering of the FallGuard mascot — the green "person" from the
-/// app icon: a round head above two upraised leaf-shaped arms.  Drawn as a
-/// resolution-independent `Shape` so it stays crisp at any badge size and
-/// needs no bundled image asset.
 struct BrandFigureShape: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let w = rect.width
         let h = rect.height
 
-        // Head — a circle in the upper-middle.
         let headD = w * 0.30
         let headRect = CGRect(
             x: rect.midX - headD / 2,
@@ -232,13 +178,10 @@ struct BrandFigureShape: Shape {
         )
         p.addEllipse(in: headRect)
 
-        // Body base where the two leaf-arms meet.
         let baseX = rect.midX
         let baseY = h * 0.98
         let tipY  = h * 0.30            // arms reach up to about head height
 
-        // Left leaf-arm: base → up-left tip → back to base, two curves
-        // forming a pointed-oval leaf.
         p.move(to: CGPoint(x: baseX, y: baseY))
         p.addQuadCurve(
             to: CGPoint(x: w * 0.14, y: tipY),
@@ -249,7 +192,6 @@ struct BrandFigureShape: Shape {
             control: CGPoint(x: w * 0.44, y: h * 0.60)
         )
 
-        // Right leaf-arm — mirror of the left.
         p.move(to: CGPoint(x: baseX, y: baseY))
         p.addQuadCurve(
             to: CGPoint(x: w * 0.86, y: tipY),
@@ -264,8 +206,6 @@ struct BrandFigureShape: Shape {
     }
 }
 
-/// Legacy vector badge retained for compatibility with older views.
-/// Replaces the old `shield.checkered` SF Symbol with the brand's green figure.
 struct BrandMark: View {
     let scheme: ColorScheme
     var size: CGFloat = 44
@@ -284,7 +224,6 @@ struct BrandMark: View {
 
     var body: some View {
         ZStack {
-            // Light badge background, matching the icon's white shield card.
             RoundedRectangle(cornerRadius: size * 0.30, style: .continuous)
                 .fill(
                     LinearGradient(
@@ -300,7 +239,6 @@ struct BrandMark: View {
                         .stroke(FallGuardColors.green.opacity(0.35), lineWidth: 0.75)
                 )
 
-            // Green figure.
             BrandFigureShape()
                 .fill(figureGradient)
                 .frame(width: size * 0.62, height: size * 0.62)

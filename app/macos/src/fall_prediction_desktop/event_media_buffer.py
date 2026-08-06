@@ -1,5 +1,3 @@
-"""Capture event thumbnails and bounded pre/post-roll video evidence."""
-
 from __future__ import annotations
 
 from collections import deque
@@ -27,7 +25,6 @@ class ActiveCapture:
 
 
 class EventMediaBuffer:
-    """Maintain a bounded JPEG ring and persist evidence outside the app bundle."""
 
     def __init__(
         self,

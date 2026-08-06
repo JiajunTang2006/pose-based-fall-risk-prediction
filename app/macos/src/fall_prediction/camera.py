@@ -49,7 +49,6 @@ def open_camera_capture(
     probe_indices: Iterable[int] = range(4),
     warmup_reads: int = 6,
 ):
-    """Open a webcam with macOS-friendly backend fallback and frame probing."""
     import cv2
 
     permission = request_camera_permission()
@@ -101,20 +100,12 @@ def request_camera_permission(timeout_seconds: float = 30.0) -> CameraPermission
         decision["allowed"] = bool(granted)
         event.set()
 
-    # AVCaptureDevice.requestAccessForMediaType:completionHandler: must be called
-    # from the main thread on macOS, otherwise the system permission dialog may
-    # never appear and the completion handler may never fire.  When we are already
-    # on the main thread we call it directly; otherwise we dispatch to the main
-    # queue via PyObjC (the main run loop is always running in a pywebview /
-    # PySide6 app).
     import threading as _threading
 
     def _request() -> None:
         try:
             capture_device.requestAccessForMediaType_completionHandler_("vide", _handler)
         except Exception:
-            # If the request itself fails, treat it as an unknown state so the
-            # caller will still try to open the camera.
             decision["allowed"] = True
             event.set()
 
@@ -126,7 +117,6 @@ def request_camera_permission(timeout_seconds: float = 30.0) -> CameraPermission
 
             dispatch_async(dispatch_get_main_queue(), _request)
     except Exception:
-        # Fallback: try calling directly (may work in some configurations).
         _request()
 
     completed = event.wait(timeout=timeout_seconds)
@@ -190,6 +180,13 @@ def _candidate_backends(cv2) -> list[tuple[int, str]]:
         avfoundation = getattr(cv2, "CAP_AVFOUNDATION", None)
         if avfoundation is not None:
             backends.append((avfoundation, "AVFoundation"))
+    elif sys.platform == "win32":
+        directshow = getattr(cv2, "CAP_DSHOW", None)
+        if directshow is not None:
+            backends.append((directshow, "DirectShow"))
+        msmf = getattr(cv2, "CAP_MSMF", None)
+        if msmf is not None:
+            backends.append((msmf, "Media Foundation"))
     backends.append((getattr(cv2, "CAP_ANY", 0), "default"))
     return backends
 

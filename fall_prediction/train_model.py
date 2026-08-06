@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import argparse
@@ -25,8 +23,8 @@ DEFAULT_PREDICTOR_CONFIG = PredictorConfig()
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a machine-learning fall classifier from feature CSV files.")
-    parser.add_argument("csv_paths", nargs="*", help="One or more feature CSV paths.")
-    parser.add_argument("--input-dir", default=None, help="Optional directory scanned recursively for feature CSV files.")
+    parser.add_argument("csv_paths", nargs="*", help="Feature CSV paths; multiple files are accepted.")
+    parser.add_argument("--input-dir", default=None, help="Optional directory containing feature CSV files; .csv files are discovered recursively.")
     parser.add_argument(
         "--output",
         default="models/yolo_tail60_prefall_accel_classifier.joblib",
@@ -35,96 +33,96 @@ def main() -> None:
     parser.add_argument(
         "--metrics-output",
         default=None,
-        help="Validation metrics JSON path; defaults to a .metrics.json file beside the model.",
+        help="Validation-metrics JSON path. Defaults to a .metrics.json file beside the model.",
     )
     parser.add_argument(
         "--window-size",
         type=int,
         default=DEFAULT_WINDOW_SIZE,
-        help="Frames per training sample; 15 frames is about 0.5 seconds.",
+        help="Frames per training sample; 15 frames is about 0.5 seconds and favors earlier Pre-fall detection.",
     )
     parser.add_argument(
         "--stride",
         type=int,
         default=DEFAULT_STRIDE,
-        help="Sliding-window step in frames.",
+        help="Sliding-window stride in frames; smaller values create more overlapping samples.",
     )
     parser.add_argument(
         "--baseline-frames",
         type=int,
         default=DEFAULT_PREDICTOR_CONFIG.baseline_frames,
-        help="Frames used to establish the body-center baseline during inference.",
+        help="Frames used to establish the body-center baseline during inference. Default: 15.",
     )
     parser.add_argument(
         "--smoothing-window",
         type=int,
         default=DEFAULT_PREDICTOR_CONFIG.smoothing_window,
-        help="Smoothing window for smoothed_risk_score during inference.",
+        help="Smoothing window for smoothed_risk_score during inference. Default: 5.",
     )
     parser.add_argument(
         "--classifier",
         choices=("random_forest", "extra_trees", "gradient_boosting", "hist_gradient_boosting"),
         default="random_forest",
-        help="scikit-learn classifier to train.",
+        help="Scikit-learn classifier to use. Default: random_forest.",
     )
     parser.add_argument(
         "--label-mode",
         choices=("filename", "annotations"),
         default="filename",
-        help="Label source: infer from filenames or use frame-interval annotations.",
+        help="Label source: filename infers labels from filenames; annotations uses frame-interval annotation files.",
     )
     parser.add_argument(
         "--annotations",
         action="append",
         default=None,
-        help="Frame-interval annotation CSV with video,start_frame,end_frame,label columns. May be repeated.",
+        help="Frame-interval annotation CSV with video,start_frame,end_frame,label columns. May be passed multiple times.",
     )
     parser.add_argument(
         "--test-size",
         type=float,
         default=0.25,
-        help="Group-wise validation fraction. Set to 0 to train on all data without validation.",
+        help="Validation ratio using video-grouped splitting. Default: 25%%; set to 0 to train on all data and skip validation.",
     )
     parser.add_argument("--random-state", type=int, default=42, help="Random seed for reproducible splitting and training.")
-    parser.add_argument("--normal-weight", type=float, default=1.0, help="Training weight for Normal samples.")
-    parser.add_argument("--fall-weight", type=float, default=1.0, help="Training weight for Fall samples.")
-    parser.add_argument("--prefall-weight", type=float, default=1.0, help="Training weight for Pre-fall samples.")
+    parser.add_argument("--normal-weight", type=float, default=1.0, help="Training weight for Normal samples. Default: 1.0.")
+    parser.add_argument("--fall-weight", type=float, default=1.0, help="Training weight for Fall samples. Default: 1.0.")
+    parser.add_argument("--prefall-weight", type=float, default=1.0, help="Training weight for Pre-fall samples. Default: 1.0.")
     parser.add_argument(
         "--tune-prefall-alert-threshold",
         action="store_true",
-        help="Tune the Pre-fall alert threshold on validation data and store it in the model artifact.",
+        help="Search for a Pre-fall alert threshold on the validation set and save it in the model artifact.",
     )
     parser.add_argument(
         "--prefall-threshold-beta",
         type=float,
         default=1.5,
-        help="F-beta beta used to tune the Pre-fall alert threshold.",
+        help="F-beta beta used for Pre-fall threshold search. Default: 1.5, favoring recall.",
     )
     parser.add_argument(
         "--prefall-alert-threshold",
         type=float,
         default=None,
-        help="Store an explicit Pre-fall probability threshold when training on the full dataset.",
+        help="Pre-fall alert probability written directly to the model, for reusing a validated threshold during full-data training.",
     )
     parser.add_argument(
         "--use-accel",
         action="store_true",
-        help="Enable acceleration features (torso_angular_accel and vertical_accel).",
+        help="Enable acceleration features (torso_angular_accel, vertical_accel).",
     )
     parser.add_argument(
         "--use-standing-calibration",
         action="store_true",
-        help="Calibrate angle, scale, and motion features against each sequence's initial standing pose.",
+        help="Express angle, scale, and motion features relative to each video's initial standing pose.",
     )
     parser.add_argument(
         "--partial-pose-augmentation",
         action="store_true",
-        help="Simulate torso, center, bounding-box, and short temporal occlusions during training.",
+        help="Simulate torso, center, bounding-box, and short temporal dropouts during training; requires --use-standing-calibration.",
     )
     parser.add_argument(
         "--use-upper-body-features",
         action="store_true",
-        help="Add shoulder-center, shoulder-rotation, and upper-body bounding-box features.",
+        help="Add shoulder-center, shoulder-line rotation, and upper-body box features, including upper-body-only occlusion samples.",
     )
     args = parser.parse_args()
     if args.partial_pose_augmentation and not args.use_standing_calibration:
@@ -132,11 +130,9 @@ def main() -> None:
     if args.use_upper_body_features and not args.use_standing_calibration:
         parser.error("--use-upper-body-features requires --use-standing-calibration")
 
-
     csv_paths = collect_csv_paths(args.csv_paths, args.input_dir)
     if not csv_paths:
         raise RuntimeError("No feature CSV files found. Run export_dataset_features.py first.")
-
 
     dataset = build_window_dataset(
         csv_paths=csv_paths,
@@ -152,8 +148,7 @@ def main() -> None:
         use_upper_body_features=args.use_upper_body_features,
     )
     if not dataset.X:
-        raise RuntimeError("No training windows were generated. Check the labels, window size, and CSV contents.")
-
+        raise RuntimeError("No training windows were generated. Check labels, window size, and CSV contents.")
 
     train_and_save(
         X=dataset.X,
@@ -200,7 +195,6 @@ def main() -> None:
 
 
 def collect_csv_paths(paths: list[str], input_dir: str | None) -> list[Path]:
-
     csv_paths = [Path(path) for path in paths]
     if input_dir:
         csv_paths.extend(sorted(Path(input_dir).rglob("*.csv")))
@@ -233,32 +227,26 @@ def train_and_save(
     partial_pose_augmentation: bool = False,
     use_upper_body_features: bool = False,
 ) -> dict[str, Any]:
-
-
     try:
         import joblib
         import numpy as np
         from sklearn.metrics import classification_report
     except ImportError as exc:
         raise RuntimeError(
-            "Training requires numpy, scikit-learn, and joblib. "
-            "Install them with: python -m pip install -r requirements.txt"
+            "Training requires numpy, scikit-learn, and joblib."
+            "Run: python -m pip install -r requirements.txt"
         ) from exc
-
 
     X_array = np.asarray(X, dtype=float)
     y_array = np.asarray(y)
     groups_array = np.asarray(groups)
 
-
-    # Split by video group so overlapping windows cannot leak across train and validation.
     train_index, test_index = _group_train_test_split(
         y_array=y_array,
         groups_array=groups_array,
         test_size=test_size,
         random_state=random_state,
     )
-
 
     model = create_classifier(classifier_name, random_state)
     sample_weight = build_sample_weights(y_array[train_index], class_weights)
@@ -296,12 +284,12 @@ def train_and_save(
         if prefall_alert_threshold_search is not None and prefall_alert_threshold_search.get("best") is not None:
             best = prefall_alert_threshold_search["best"]
             print(
-                "\nPre-fall alert threshold search:"
+                "\nPre-fall alert-threshold search:"
                 f" threshold={best['threshold']:.2f}, precision={best['precision']:.3f},"
                 f" recall={best['recall']:.3f}, f_beta={best['f_beta']:.3f}"
             )
     else:
-        print("\nValidation skipped: too few videos or classes for a group-wise split.")
+        print("\nValidation skipped: insufficient videos or classes for a grouped split.")
 
     created_at = datetime.now().isoformat(timespec="seconds")
     validation_split = build_validation_split_summary(
@@ -310,7 +298,6 @@ def train_and_save(
         train_index=train_index,
         test_index=test_index,
     )
-
 
     if saved_feature_columns is None:
         saved_feature_columns = ACCEL_FEATURE_COLUMNS if use_accel else ML_FEATURE_COLUMNS
@@ -381,7 +368,6 @@ def train_and_save(
 
 
 def build_validation_metrics(y_true, y_pred, labels) -> dict[str, Any]:
-    """Build a JSON-serializable validation metrics summary."""
     from sklearn.metrics import classification_report, confusion_matrix
 
     y_true_names = [str(label) for label in y_true]
@@ -409,7 +395,6 @@ def build_validation_metrics(y_true, y_pred, labels) -> dict[str, Any]:
 
 
 def build_sample_weights(labels, class_weights: dict[str, float] | None) -> list[float] | None:
-    """Build per-sample weights, returning None when all weights are neutral."""
     weights = normalized_class_weights(class_weights)
     if not weights or all(abs(weight - 1.0) <= 1e-9 for weight in weights.values()):
         return None
@@ -417,7 +402,6 @@ def build_sample_weights(labels, class_weights: dict[str, float] | None) -> list
 
 
 def normalized_class_weights(class_weights: dict[str, float] | None) -> dict[str, float]:
-    """Normalize and validate class weights for artifact/metrics output."""
     if not class_weights:
         return {}
     weights = {str(label): float(weight) for label, weight in class_weights.items()}
@@ -428,7 +412,6 @@ def normalized_class_weights(class_weights: dict[str, float] | None) -> dict[str
 
 
 def normalize_probability_threshold(value: float | None) -> float | None:
-    """Validate a user-provided probability threshold."""
     if value is None:
         return None
     threshold = float(value)
@@ -444,7 +427,6 @@ def tune_prefall_alert_threshold_on_validation(
     probabilities,
     beta: float = 1.5,
 ) -> dict[str, Any]:
-    """Search a Pre-fall probability threshold for the alert layer."""
     beta = max(float(beta), 1e-6)
     class_names = [str(label) for label in classes]
     if "Pre-fall" not in class_names:
@@ -495,7 +477,6 @@ def tune_prefall_alert_threshold_on_validation(
 
 
 def prefall_alert_predictions(y_pred, classes, probabilities, threshold: float) -> list[str]:
-    """Apply the runtime-style Pre-fall alert threshold to validation predictions."""
     prefall_index = list(classes).index("Pre-fall")
     alert_predictions: list[str] = []
     for label, probability_row in zip(y_pred, probabilities):
@@ -511,7 +492,6 @@ def prefall_alert_predictions(y_pred, classes, probabilities, threshold: float) 
 
 
 def prefall_binary_metrics(y_true, y_pred, beta: float) -> dict[str, Any]:
-    """Compute binary Pre-fall precision/recall/F-beta for threshold search."""
     true_labels = [str(label) for label in y_true]
     pred_labels = [str(label) for label in y_pred]
     true_positive = sum(1 for true, pred in zip(true_labels, pred_labels) if true == "Pre-fall" and pred == "Pre-fall")
@@ -534,7 +514,6 @@ def prefall_binary_metrics(y_true, y_pred, beta: float) -> dict[str, Any]:
 
 
 def build_validation_split_summary(y_array, groups_array, train_index, test_index) -> dict[str, Any]:
-    """Summarize the grouped train/validation split for reproducibility."""
     return {
         "train_samples": int(len(train_index)),
         "validation_samples": int(len(test_index)),
@@ -546,12 +525,10 @@ def build_validation_split_summary(y_array, groups_array, train_index, test_inde
 
 
 def label_counts(labels) -> dict[str, int]:
-    """Return stable string label counts for JSON output."""
     return dict(sorted(Counter(str(label) for label in labels).items()))
 
 
 def default_metrics_output_path(model_output: Path) -> Path:
-    """Derive the default metrics file name from the model artifact path."""
     return model_output.with_suffix(".metrics.json")
 
 
@@ -577,7 +554,6 @@ def build_metrics_report(
     partial_pose_augmentation: bool = False,
     use_upper_body_features: bool = False,
 ) -> dict[str, Any]:
-    """Create the standalone metrics report written next to the model."""
     return {
         "created_at": created_at,
         "classifier": classifier_name,
@@ -603,7 +579,6 @@ def build_metrics_report(
 
 
 def write_metrics_report(path: str | Path, report: dict[str, Any]) -> None:
-    """Write validation metrics as stable, UTF-8 JSON."""
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
@@ -613,7 +588,6 @@ def write_metrics_report(path: str | Path, report: dict[str, Any]) -> None:
 
 
 def json_ready(value: Any) -> Any:
-    """Convert common numpy/scikit-learn values into JSON-safe Python values."""
     if isinstance(value, dict):
         return {str(key): json_ready(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -624,7 +598,6 @@ def json_ready(value: Any) -> Any:
 
 
 def create_classifier(classifier_name: str, random_state: int):
-
     from sklearn.ensemble import (
         ExtraTreesClassifier,
         GradientBoostingClassifier,
@@ -633,7 +606,6 @@ def create_classifier(classifier_name: str, random_state: int):
     )
 
     if classifier_name == "random_forest":
-
         return RandomForestClassifier(
             n_estimators=300,
             class_weight="balanced",
@@ -642,7 +614,6 @@ def create_classifier(classifier_name: str, random_state: int):
         )
 
     if classifier_name == "extra_trees":
-
         return ExtraTreesClassifier(
             n_estimators=500,
             class_weight="balanced",
@@ -651,18 +622,15 @@ def create_classifier(classifier_name: str, random_state: int):
         )
 
     if classifier_name == "gradient_boosting":
-
         return GradientBoostingClassifier(random_state=random_state)
 
     if classifier_name == "hist_gradient_boosting":
-
         return HistGradientBoostingClassifier(random_state=random_state)
 
     raise ValueError(f"Unknown classifier: {classifier_name}")
 
 
 def _group_train_test_split(y_array, groups_array, test_size: float, random_state: int):
-
     import numpy as np
     from sklearn.model_selection import GroupShuffleSplit
 
@@ -675,10 +643,8 @@ def _group_train_test_split(y_array, groups_array, test_size: float, random_stat
     unique_groups = np.unique(groups_array)
     unique_labels = np.unique(y_array)
 
-
     if len(unique_groups) < 2 or len(unique_labels) < 2:
         return all_indices, np.asarray([], dtype=int)
-
 
     splitter = GroupShuffleSplit(n_splits=100, test_size=test_size, random_state=random_state)
     fallback_split = None
@@ -689,7 +655,6 @@ def _group_train_test_split(y_array, groups_array, test_size: float, random_stat
             fallback_split = (train_index, test_index)
         if set(train_labels) == set(unique_labels) and set(test_labels) == set(unique_labels):
             return train_index, test_index
-
 
     if fallback_split is not None:
         return fallback_split

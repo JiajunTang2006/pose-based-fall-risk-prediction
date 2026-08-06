@@ -1,5 +1,3 @@
-"""Train a compact skeleton ST-GCN with optional engineered-feature fusion."""
-
 from __future__ import annotations
 
 import argparse
@@ -69,7 +67,7 @@ def main() -> None:
         "--prefall-recall-floor",
         type=float,
         default=0.80,
-        help="Minimum Pre-fall recall required when calibrating the alert threshold (default: 0.80).",
+        help="Minimum Pre-fall recall required during alert-threshold calibration. Default: 0.80.",
     )
     parser.add_argument(
         "--probability-temperature",

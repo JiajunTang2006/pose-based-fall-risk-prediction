@@ -1,12 +1,3 @@
-"""
-HTTP request handler and server for the FallGuard AI Service.
-
-All ``/api/v1/`` routes require Bearer-token authentication.  This module
-provides the ``ServiceRequestHandler`` (per-request) and ``AIServiceServer``
-(ThreadingHTTPServer subclass) that wires together the CameraMonitor,
-MediaImportProcessor, database, profiles, and settings.
-"""
-
 from __future__ import annotations
 
 import json
@@ -44,10 +35,11 @@ from .serialization import (
     serialize_settings,
     serialize_status,
 )
+from fall_prediction_desktop.paths import media_output_dir, user_data_dir
+from fall_prediction_desktop.dataset_export import export_reviewed_dataset
 
 logger = logging.getLogger(__name__)
 
-# Reuse the media constants from the desktop layer.
 try:
     from fall_prediction_desktop.web_app import (
         IMAGE_EXTENSIONS,
@@ -69,23 +61,19 @@ except ImportError:
 
 
 class ServiceRequestHandler(BaseHTTPRequestHandler):
-    """Handler for one HTTP request — stateless beyond the shared server."""
 
     server: "AIServiceServer"
 
-    # ── HTTP method dispatch ────────────────────────────────────────
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
 
-        # Public endpoints (no auth required)
         if path == "/api/v1/health":
             self._handle_health()
             return
 
-        # Authenticated endpoints
         if not self._check_auth():
             return
 
@@ -134,6 +122,8 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             self._handle_activate_profile(profile_id)
         elif path == "/api/v1/imports":
             self._handle_create_import()
+        elif path == "/api/v1/dataset/export":
+            self._handle_export_dataset()
         elif path == "/api/v1/shutdown":
             self._handle_shutdown()
         else:
@@ -148,6 +138,9 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/v1/settings":
             self._handle_update_settings()
+        elif path.startswith("/api/v1/events/") and path.endswith("/feedback"):
+            event_id = path.split("/")[-2]
+            self._handle_update_event_feedback(event_id)
         elif path.startswith("/api/v1/profiles/") and not path.endswith("/activate"):
             profile_id = path.rsplit("/", 1)[-1]
             self._handle_update_profile(profile_id)
@@ -161,19 +154,19 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         if not self._check_auth():
             return
 
-        if path.startswith("/api/v1/profiles/"):
+        if path == "/api/v1/history":
+            self._handle_clear_history()
+        elif path.startswith("/api/v1/profiles/"):
             profile_id = path.rsplit("/", 1)[-1]
             self._handle_delete_profile(profile_id)
         else:
             self._send_error(not_found(f"Unknown endpoint: {path}"))
 
     def do_OPTIONS(self) -> None:
-        """CORS preflight for local development."""
         self.send_response(HTTPStatus.NO_CONTENT)
         self._cors_headers()
         self.end_headers()
 
-    # ── auth ────────────────────────────────────────────────────────
 
     def _check_auth(self) -> bool:
         header = self.headers.get("Authorization")
@@ -182,11 +175,9 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         self._send_error(unauthorized(), status=HTTPStatus.UNAUTHORIZED)
         return False
 
-    # ── health ──────────────────────────────────────────────────────
 
     def _handle_health(self) -> None:
         monitor = self.server.monitor
-        # Models are loaded when the preload worker has finished (or was never started).
         preload_worker = getattr(monitor, "_preload_worker", None)
         worker_finished = preload_worker is None or not preload_worker.is_alive()
         models_loaded = (
@@ -210,19 +201,16 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             database_ok=database_ok,
         ))
 
-    # ── status ──────────────────────────────────────────────────────
 
     def _handle_status(self) -> None:
         if self.server.monitor is None:
             self._send_error(internal_error("Monitor not initialised"))
             return
         snapshot = self.server.monitor.snapshot()
-        # Include media job snapshot
         if self.server.media_processor is not None:
             snapshot["mediaJob"] = self.server.media_processor.snapshot()
         self._send_json(serialize_status(snapshot))
 
-    # ── monitor start / stop ────────────────────────────────────────
 
     def _handle_monitor_start(self) -> None:
         monitor = self.server.monitor
@@ -238,7 +226,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        # Check for media import conflict
         if self.server.media_processor is not None:
             media_snap = self.server.media_processor.snapshot()
             if media_snap.get("running"):
@@ -276,7 +263,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_error(internal_error(str(exc)))
 
-    # ── settings ────────────────────────────────────────────────────
 
     def _handle_get_settings(self) -> None:
         s = self.server.settings
@@ -340,7 +326,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
 
         self._send_json(serialize_settings(s))
 
-    # ── cameras ─────────────────────────────────────────────────────
 
     def _handle_get_cameras(self) -> None:
         try:
@@ -356,7 +341,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             "current": self.server.settings.camera_index,
         })
 
-    # ── profiles ────────────────────────────────────────────────────
 
     def _handle_get_profiles(self) -> None:
         pm = self.server.profile_manager
@@ -424,7 +408,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True})
 
-    # ── events ──────────────────────────────────────────────────────
 
     def _handle_get_events(self, qs: dict[str, list[str]]) -> None:
         repos = self.server._repos
@@ -437,7 +420,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         profile_id = qs.get("profile_id", [None])[0]
 
         try:
-            # Decode cursor: base64(created_at|id)
             after_timestamp: str | None = None
             after_id: str | None = None
             if cursor:
@@ -450,8 +432,7 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
-            # Use the events repository for pagination
-            rows = repos.events.list_recent(limit)  # fallback: recent events
+            rows = repos.events.list_recent(limit)
             items = [serialize_event(dict(r) if hasattr(r, "keys") else r) for r in rows]
 
             next_cursor = None
@@ -466,7 +447,136 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_error(internal_error(str(exc)))
 
-    # ── sessions ────────────────────────────────────────────────────
+    def _handle_update_event_feedback(self, event_id: str) -> None:
+        repos = self.server._repos
+        if repos is None:
+            self._send_error(internal_error("Database not available"))
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        feedback = str(body.get("feedback", "")).strip()
+        allowed = {"confirmed", "near_fall", "normal", "false_alarm", "unsure"}
+        if feedback not in allowed:
+            self._send_error(invalid_argument("Invalid event feedback"))
+            return
+        notes = str(body.get("notes", "")).strip()
+        if len(notes) > 2000:
+            self._send_error(invalid_argument("Event notes are too long"))
+            return
+        if "annotation_label" in body:
+            annotation_label = str(body.get("annotation_label") or "").strip()
+            if annotation_label not in {"Normal", "Pre-fall", "Fall"}:
+                self._send_error(invalid_argument("Invalid annotation label"))
+                return
+            try:
+                prefall_start = (
+                    float(body["prefall_start_seconds"])
+                    if body.get("prefall_start_seconds") is not None
+                    else None
+                )
+                fall_start = (
+                    float(body["fall_start_seconds"])
+                    if body.get("fall_start_seconds") is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                self._send_error(invalid_argument("Annotation boundaries must be numbers"))
+                return
+            clip_duration = float(body.get("clip_duration_seconds") or 0.0)
+            if annotation_label in {"Pre-fall", "Fall"}:
+                if prefall_start is None or prefall_start < 0:
+                    self._send_error(invalid_argument("Pre-fall start is required"))
+                    return
+                if clip_duration > 0 and prefall_start >= clip_duration:
+                    self._send_error(invalid_argument("Pre-fall start exceeds clip duration"))
+                    return
+            else:
+                prefall_start = None
+                fall_start = None
+            if annotation_label == "Fall":
+                if fall_start is None or fall_start <= (prefall_start or 0):
+                    self._send_error(invalid_argument(
+                        "Fall start must be after Pre-fall start"
+                    ))
+                    return
+                if clip_duration > 0 and fall_start >= clip_duration:
+                    self._send_error(invalid_argument("Fall start exceeds clip duration"))
+                    return
+            else:
+                fall_start = None
+            event = repos.events.set_feedback(
+                event_id,
+                feedback,
+                notes,
+                annotation_label=annotation_label,
+                prefall_start_seconds=prefall_start,
+                fall_start_seconds=fall_start,
+            )
+        else:
+            event = repos.events.set_feedback(event_id, feedback, notes)
+        if event is None:
+            self._send_error(not_found("Event not found"))
+            return
+        self._send_json(serialize_event(event))
+
+    def _handle_export_dataset(self) -> None:
+        repos = self.server._repos
+        if repos is None:
+            self._send_error(internal_error("Database not available"))
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        destination = str(body.get("output_directory") or "").strip()
+        if not destination:
+            self._send_error(invalid_argument("Export destination is required"))
+            return
+        try:
+            result = export_reviewed_dataset(
+                repos.events.list_annotated_for_export(),
+                destination,
+            )
+        except ValueError as exc:
+            self._send_error(invalid_argument(str(exc)))
+            return
+        except OSError as exc:
+            self._send_error(internal_error(f"Could not export dataset: {exc}"))
+            return
+        self._send_json({
+            "ok": True,
+            "output_directory": str(result.output_directory),
+            "annotations_path": str(result.annotations_path),
+            "video_count": result.video_count,
+            "annotation_count": result.annotation_count,
+            "skipped_count": result.skipped_count,
+        })
+
+    def _handle_clear_history(self) -> None:
+        monitor = self.server.monitor
+        if monitor is not None:
+            snapshot = monitor.snapshot()
+            if snapshot.get("running") or snapshot.get("loading"):
+                self._send_error(invalid_argument(
+                    "Stop monitoring before clearing history"
+                ))
+                return
+        processor = self.server.media_processor
+        if processor is not None and processor.snapshot().get("running"):
+            self._send_error(invalid_argument(
+                "Wait for media import to finish before clearing history"
+            ))
+            return
+        repos = self.server._repos
+        if repos is None:
+            self._send_error(internal_error("Database not available"))
+            return
+        try:
+            removed = repos.clear_history()
+            self._send_json({"ok": True, "removed": removed})
+        except Exception as exc:
+            self._send_error(internal_error(str(exc)))
+
 
     def _handle_get_sessions(self, qs: dict[str, list[str]]) -> None:
         repos = self.server._repos
@@ -495,7 +605,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_error(internal_error(str(exc)))
 
-    # ── imports ─────────────────────────────────────────────────────
 
     def _handle_create_import(self) -> None:
         monitor = self.server.monitor
@@ -522,7 +631,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         paths = [Path(p).expanduser() for p in paths_raw]
         output_dir = Path(output_dir_raw).expanduser() if output_dir_raw else None
 
-        # Validate paths exist
         for p in paths:
             if not p.exists():
                 self._send_error(invalid_argument(f"Path does not exist: {p}"))
@@ -530,13 +638,13 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             suffix = p.suffix.lower()
             if suffix not in SUPPORTED_MEDIA_EXTENSIONS:
                 self._send_error(invalid_argument(f"Unsupported format: {suffix}"))
+                return
 
         processor = self.server.media_processor
         if processor is None:
             self._send_error(internal_error("Media processor not available"))
             return
 
-        # Temporarily set sensitivity
         orig_sensitivity = self.server.settings.sensitivity
         self.server.settings.sensitivity = sensitivity
         processor.update_settings(self.server.settings)
@@ -558,7 +666,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         job = processor.snapshot()
         self._send_json(serialize_import_job(job))
 
-    # ── media content ───────────────────────────────────────────────
 
     def _handle_media_content(self, media_id: str) -> None:
         repos = self.server._repos
@@ -573,7 +680,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
                 return
 
             file_path = Path(media.get("file_path", ""))
-            # Security: verify the file is within allowed media directories
             allowed_roots = [
                 self.server.monitor.output_dir if self.server.monitor else None,
                 getattr(self.server.media_processor, "output_dir", None) if self.server.media_processor else None,
@@ -584,7 +690,12 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
                 or file_path.resolve().is_relative_to(root.resolve())
                 for root in allowed_roots
             )
-            if not allowed and not file_path.is_relative_to(Path.home() / "Movies" / "FallGuard"):
+            platform_roots = [media_output_dir(), user_data_dir() / "media"]
+            allowed = allowed or any(
+                file_path.resolve().is_relative_to(root.resolve())
+                for root in platform_roots
+            )
+            if not allowed:
                 self._send_error(internal_error("Access denied"))
                 return
 
@@ -603,7 +714,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_error(internal_error(str(exc)))
 
-    # ── preview / MJPEG ─────────────────────────────────────────────
 
     def _serve_latest_frame(self) -> None:
         frame = self.server.monitor.jpeg_frame() if self.server.monitor else None
@@ -648,17 +758,14 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 break
 
-    # ── shutdown ────────────────────────────────────────────────────
 
     def _handle_shutdown(self) -> None:
         self._send_json({"ok": True, "message": "Shutting down"})
-        # Shutdown in a separate thread so the response is sent first.
         def _do_shutdown() -> None:
             self.server.lifecycle.request_shutdown()
 
         threading.Thread(target=_do_shutdown, daemon=True).start()
 
-    # ── helpers ─────────────────────────────────────────────────────
 
     def _read_json_body(self) -> dict[str, Any] | None:
         try:
@@ -699,7 +806,6 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _cors_headers(self) -> None:
-        """Allow only explicit loopback origins for browser-based dev tools."""
         origin = self.headers.get("Origin")
         if origin:
             parsed = urlparse(origin)
@@ -712,15 +818,10 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
 
     def log_message(self, format: str, *args: object) -> None:
-        """Suppress default stderr logging — we use Python logging instead."""
         logger.debug(format, *args)
 
 
 class AIServiceServer(ThreadingHTTPServer):
-    """Threading HTTP server for the FallGuard AI Service.
-
-    Binds to ``127.0.0.1`` with the requested port (0 = OS-assigned).
-    """
 
     allow_reuse_address = True
     daemon_threads = True

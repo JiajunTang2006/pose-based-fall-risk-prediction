@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import math
@@ -9,30 +7,18 @@ from .features import PoseFeatures
 
 
 ML_FEATURE_COLUMNS = (
-
     "has_pose",
-
     "torso_angle",
-
     "torso_angular_velocity",
-
     "body_center_y",
-
     "body_center_delta",
-
     "vertical_velocity",
-
     "aspect_ratio",
-
     "body_width",
-
     "body_height",
-
     "visibility_mean",
-
     "center_drop",
 )
-
 
 ACCEL_FEATURE_COLUMNS = ML_FEATURE_COLUMNS + (
     "torso_angular_accel",
@@ -41,7 +27,6 @@ ACCEL_FEATURE_COLUMNS = ML_FEATURE_COLUMNS + (
 
 
 def pose_features_to_ml_row(features: PoseFeatures, center_drop: float = 0.0) -> dict[str, float]:
-
     return {
         "has_pose": 1.0 if features.has_pose else 0.0,
         "torso_angle": features.torso_angle_deg,
@@ -54,8 +39,6 @@ def pose_features_to_ml_row(features: PoseFeatures, center_drop: float = 0.0) ->
         "body_height": features.body_height,
         "visibility_mean": features.visibility_mean,
         "center_drop": center_drop,
-        # Extra metadata used only by robust artifacts; legacy feature columns
-        # ignore these keys and therefore remain fully compatible.
         "timestamp": features.timestamp,
         "torso_signed_angle": features.torso_signed_angle_deg,
         "torso_valid": 1.0 if features.torso_valid else 0.0,
@@ -82,7 +65,6 @@ def row_to_feature_values(
     row: Mapping[str, object],
     feature_columns: Sequence[str] = ML_FEATURE_COLUMNS,
 ) -> list[float]:
-
     return [_safe_float(row.get(column, 0.0)) for column in feature_columns]
 
 
@@ -90,7 +72,6 @@ def flatten_window(
     rows: Sequence[Mapping[str, object]],
     feature_columns: Sequence[str] = ML_FEATURE_COLUMNS,
 ) -> list[float]:
-
     values: list[float] = []
     for row in rows:
         values.extend(row_to_feature_values(row, feature_columns))
@@ -101,7 +82,6 @@ def make_window_feature_names(
     window_size: int,
     feature_columns: Sequence[str] = ML_FEATURE_COLUMNS,
 ) -> list[str]:
-
     names: list[str] = []
     for index in range(window_size):
         relative = index - window_size + 1
@@ -111,7 +91,6 @@ def make_window_feature_names(
 
 
 def _safe_float(value: object) -> float:
-
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -125,16 +104,13 @@ def compute_window_accel_features(
     window_rows: Sequence[Mapping[str, object]],
     base_feature_columns: Sequence[str] = ML_FEATURE_COLUMNS,
 ) -> list[dict[str, float]]:
-
     enhanced: list[dict[str, float]] = []
     for i, row in enumerate(window_rows):
         entry: dict[str, float] = {}
-
         for col in base_feature_columns:
             if col in {"torso_angular_accel", "vertical_accel"}:
                 continue
             entry[col] = _safe_float(row.get(col, 0.0))
-
         if i == 0:
             entry["torso_angular_accel"] = 0.0
             entry["vertical_accel"] = 0.0

@@ -130,7 +130,7 @@ class WindowDatasetTest(unittest.TestCase):
                 baseline_frames=3,
             )
 
-        self.assertEqual(len(dataset.X), 25)  # 5 windows × original + 4 dropout variants
+        self.assertEqual(len(dataset.X), 25)
         self.assertEqual(len(dataset.X[0]), 2 * 15)
         self.assertIn("t-1_torso_valid", dataset.feature_names)
         self.assertIn("t_feature_coverage", dataset.feature_names)

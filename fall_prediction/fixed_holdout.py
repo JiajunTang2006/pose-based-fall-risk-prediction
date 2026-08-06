@@ -1,5 +1,3 @@
-"""Create and validate a reproducible trial-group holdout split."""
-
 from __future__ import annotations
 
 import hashlib
@@ -21,7 +19,6 @@ def create_fixed_group_holdout_manifest(
     test_fraction: float = DEFAULT_HOLDOUT_FRACTION,
     random_state: int = DEFAULT_HOLDOUT_RANDOM_STATE,
 ) -> dict[str, Any]:
-    """Randomly select complete groups while approximately stratifying labels."""
     if not 0.0 < test_fraction < 0.5:
         raise ValueError("test_fraction must be between 0 and 0.5")
     if not (len(labels) == len(groups) == len(sequences)):
@@ -83,7 +80,6 @@ def indices_from_fixed_manifest(
     groups: Sequence[str],
     sequences: Sequence[str],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Resolve saved group names and reject a silently changed dataset."""
     fingerprint = dataset_fingerprint(labels, groups, sequences)
     if manifest.get("dataset_fingerprint") != fingerprint:
         raise ValueError(

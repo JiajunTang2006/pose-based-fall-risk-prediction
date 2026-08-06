@@ -1,7 +1,5 @@
 import SwiftUI
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Profiles 分组；布局代码无需修改。
-/// Profile management with card-style layout.
 struct ProfilesView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
@@ -12,7 +10,6 @@ struct ProfilesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
                 Text("profiles.title")
                     .font(FallGuardFont.title)
@@ -54,6 +51,7 @@ struct ProfilesView: View {
                             ProfileCard(
                                 profile: profile,
                                 isActive: profile.id == store.activeProfileId,
+                                canDelete: store.profiles.count > 1,
                                 scheme: colorScheme,
                                 onActivate: { Task { await store.activateProfile(id: profile.id) } },
                                 onDelete: {
@@ -67,7 +65,6 @@ struct ProfilesView: View {
                 }
             }
 
-            // Status bar
             HStack {
                 Text(String(format: NSLocalizedString("profiles.count", comment: ""),
                            store.profiles.count))
@@ -106,18 +103,16 @@ struct ProfilesView: View {
     }
 }
 
-// MARK: - Profile Card
-
 struct ProfileCard: View {
     let profile: ProfileDTO
     let isActive: Bool
+    let canDelete: Bool
     let scheme: ColorScheme
     let onActivate: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         VStack(spacing: FallGuardSpacing.s12) {
-            // Top
             HStack {
                 ZStack {
                     Circle()
@@ -137,7 +132,7 @@ struct ProfileCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.name)
+                    Text(displayName)
                         .font(FallGuardFont.headline)
                         .foregroundColor(FallGuardColors.textPrimary(for: scheme))
                     Text(formattedCreatedAt)
@@ -161,7 +156,6 @@ struct ProfileCard: View {
 
             Divider()
 
-            // Bottom
             HStack {
                 Label(
                     String(format: NSLocalizedString("profiles.fall_count", comment: ""), profile.fallCount),
@@ -188,7 +182,8 @@ struct ProfileCard: View {
                         .foregroundColor(FallGuardColors.muted(for: scheme))
                 }
                 .buttonStyle(.borderless)
-                .help("profiles.delete")
+                .disabled(!canDelete)
+                .help(canDelete ? "profiles.delete" : "profiles.delete_requires_another")
             }
         }
         .padding(FallGuardSpacing.s16)
@@ -218,6 +213,16 @@ struct ProfileCard: View {
         guard let date = parser.date(from: profile.createdAt) else {
             return profile.createdAt
         }
-        return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none)
+        let formatter = DateFormatter()
+        formatter.locale = LanguageManager.formattingLocale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private var displayName: String {
+        profile.name == "Default"
+            ? NSLocalizedString("profile.default", comment: "")
+            : profile.name
     }
 }

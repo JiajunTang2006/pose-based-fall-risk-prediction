@@ -1,5 +1,3 @@
-"""Sensitivity profiles shared by the rule and ML predictors."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, replace

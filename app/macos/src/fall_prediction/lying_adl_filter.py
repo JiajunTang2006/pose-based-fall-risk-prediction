@@ -1,15 +1,3 @@
-"""Lightweight product rule for static lying activities of daily living.
-
-The classifiers answer what the current window looks like.  This filter adds
-the narrower event-level distinction needed by the product: a person who is
-already lying still is not automatically a Fall, while a confirmed dynamic
-Fall remains latched after the person becomes still.
-
-Unlike :class:`TemporalSequenceGate`, this rule does not require a complete
-Normal -> Pre-fall -> Fall chain.  It intervenes only when posture is both low
-and static and the recent windows contain no fall-like motion.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,7 +18,6 @@ DEFAULT_FALL_MOTION_MEMORY_STEPS = 6
 
 @dataclass(frozen=True)
 class StaticLyingADLDecision:
-    """Postprocessed product states for one sampled window."""
 
     state: str
     alert_state: str
@@ -45,20 +32,7 @@ class StaticLyingADLDecision:
 
 
 class StaticLyingADLFilter:
-    """Suppress static-lying false alarms without replacing model training.
-
-    Rules:
-
-    * static low posture + no recent fall motion: confirmed/alert Fall is
-      changed to Normal, with only a short Pre-fall advisory at warm start;
-    * a confirmed Fall with current/recent motion is latched;
-    * a confirmed non-static Fall still passes through and is latched, so this
-      narrow ADL rule cannot recreate the misses caused by the old strict gate;
-    * once latched, later static lying remains Fall until acknowledged.
-
-    Counters advance at the model artifact stride rather than on every highly
-    overlapping video frame.
-    """
+    """Suppress static lying ADLs without overriding recent fall motion."""
 
     def __init__(
         self,
@@ -90,7 +64,6 @@ class StaticLyingADLFilter:
         self._fall_latched = False
 
     def acknowledge_fall(self) -> None:
-        """Clear the event latch without changing model/calibration windows."""
         self._fall_latched = False
         self._static_lying_count = 0
         self._motion_memory_remaining = 0
@@ -131,11 +104,6 @@ class StaticLyingADLFilter:
                 has_recent_fall_motion=has_recent_fall_motion,
             )
 
-        # `is_low_posture` intentionally also covers a small/crouched person
-        # for the legacy sequence gate.  That is too broad for an ADL *lying*
-        # override and varies with camera distance.  Requiring its horizontal
-        # sub-condition prevents a distant upright person from being treated
-        # as already lying merely because the bounding box is short.
         is_static_lying_posture = (
             posture.is_static_low_posture and posture.is_low_horizontal
         )
@@ -151,8 +119,6 @@ class StaticLyingADLFilter:
         if static_without_fall_motion and has_fall_or_warning_candidate:
             if advance:
                 self._static_lying_count += 1
-            # The official output is Normal immediately.  A short advisory
-            # preserves caution while a warm-start lying posture settles.
             warm_warning = (
                 self._static_lying_count <= self.warm_warning_steps
                 and self._static_lying_count < self.lying_settle_steps
@@ -175,9 +141,6 @@ class StaticLyingADLFilter:
         if advance:
             self._static_lying_count = 0
 
-        # `state == Fall` is the authoritative/confirmed channel.  A dynamic
-        # or non-static confirmed Fall is allowed through and latched.  An
-        # alert-only Fall remains an alert and does not create a product latch.
         if state == "Fall":
             self._fall_latched = True
             reason = (

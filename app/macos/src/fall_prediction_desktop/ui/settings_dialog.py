@@ -1,8 +1,3 @@
-"""
-Settings dialog — Material Design 3 layout.
-Sidebar nav + content panel. Full i18n coverage.
-"""
-
 from __future__ import annotations
 
 import json
@@ -18,8 +13,6 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox,
 )
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from .theme import ThemeManager
     from .i18n import get_i18n, t
@@ -27,7 +20,6 @@ except ImportError:
     from fall_prediction_desktop.ui.theme import ThemeManager  # type: ignore[no-redef]
     from fall_prediction_desktop.ui.i18n import get_i18n, t  # type: ignore[no-redef]
 
-# ── M3 color tokens for settings dialog ──────────────────────────────
 
 M3_LIGHT = {
     "bg":             "#FFFFFF",
@@ -77,7 +69,6 @@ M3_DARK = {
 
 
 class SettingsDialog(QDialog):
-    """M3-style settings dialog with sidebar nav + content panel."""
 
     theme_changed = Signal(str)
     language_changed = Signal(str)
@@ -105,14 +96,12 @@ class SettingsDialog(QDialog):
         self._apply_m3_style()
         self._load()
 
-    # ── Build ─────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Body: sidebar + content
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
@@ -163,7 +152,6 @@ class SettingsDialog(QDialog):
         self._set_active_nav(0)
         return nav
 
-    # ── Content pages ─────────────────────────────────────────────
 
     def _page_general(self) -> QWidget:
         self._lang_combo = self._make_combo([
@@ -339,7 +327,6 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return page
 
-    # ── Content helpers ───────────────────────────────────────────
 
     def _content_page(self, title: str, rows: list[QWidget]) -> QWidget:
         scroll = QScrollArea()
@@ -471,7 +458,6 @@ class SettingsDialog(QDialog):
         sep.setObjectName("rowSep")
         return sep
 
-    # ── Helpers ───────────────────────────────────────────────────
 
     @staticmethod
     def _make_combo(options: list[tuple[str, str]]) -> QComboBox:
@@ -502,7 +488,6 @@ class SettingsDialog(QDialog):
                 item.setFont(font)
         self._nav_list.setCurrentRow(index)
 
-    # ── M3 style application ─────────────────────────────────────
 
     def _apply_m3_style(self) -> None:
         c = self._m3
@@ -714,7 +699,6 @@ class SettingsDialog(QDialog):
             }}
         """)
 
-    # ── Load ──────────────────────────────────────────────────────
 
     def _load(self) -> None:
         for cb, val in [
@@ -746,7 +730,6 @@ class SettingsDialog(QDialog):
                 item.setFont(font)
             self._profile_list.addItem(item)
 
-    # ── Navigation ────────────────────────────────────────────────
 
     def _on_nav_clicked(self, item: QListWidgetItem) -> None:
         key = item.data(Qt.ItemDataRole.UserRole)
@@ -760,11 +743,8 @@ class SettingsDialog(QDialog):
                 break
 
     def _rebuild_content(self) -> None:
-        """Rebuild dialog content after language change."""
-        # Update window title
         self.setWindowTitle(t("settings.title", "Settings"))
 
-        # Update nav items
         nav_keys_map = {
             "general": "settings.general",
             "detection": "settings.detection",
@@ -776,41 +756,32 @@ class SettingsDialog(QDialog):
             i18n_key = nav_keys_map.get(key, key)
             item.setText(f"  {t(i18n_key, key.title())}")
 
-        # Save current page
         current = self._stack.currentIndex()
 
-        # Remove all pages from stack
         old_pages = []
         while self._stack.count():
             w = self._stack.widget(0)
             self._stack.removeWidget(w)
             old_pages.append(w)
 
-        # Rebuild pages (creates new combo boxes)
         self._stack.addWidget(self._page_general())
         self._stack.addWidget(self._page_detection())
         self._stack.addWidget(self._page_alerts())
         self._stack.addWidget(self._page_data_management())
         self._stack.addWidget(self._page_about())
 
-        # Restore page
         self._stack.setCurrentIndex(current)
 
-        # Reload settings into new widgets
         self._load()
 
-        # Delete old pages
         for w in old_pages:
             w.deleteLater()
 
-        # Re-set active nav
         self._set_active_nav(current)
 
-        # Re-apply M3 style
         self._m3 = M3_DARK if self._theme_manager.effective == "dark" else M3_LIGHT
         self._apply_m3_style()
 
-    # ── Handlers ──────────────────────────────────────────────────
 
     def _on_lang(self) -> None:
         lang = self._lang_combo.currentData()

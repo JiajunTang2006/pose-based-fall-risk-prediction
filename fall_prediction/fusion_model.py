@@ -1,5 +1,3 @@
-"""Small-data skeleton GCN and engineered-feature TCN fusion model."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +10,6 @@ from .skeleton_dataset import COCO_SKELETON_EDGES
 
 
 def normalized_skeleton_adjacency(joint_count: int = 17) -> np.ndarray:
-    """Build a symmetric degree-normalized skeleton adjacency matrix."""
     adjacency = np.eye(joint_count, dtype=np.float32)
     for first, second in COCO_SKELETON_EDGES:
         adjacency[first, second] = 1.0
@@ -31,7 +28,6 @@ def build_skeleton_feature_fusion_net(
     dropout: float = 0.25,
     mode: str = "fusion",
 ):
-    """Build a compact ST-GCN, optionally fused with a causal feature TCN."""
     torch, nn = _require_torch()
     if mode not in {"skeleton", "fusion"}:
         raise ValueError("mode must be 'skeleton' or 'fusion'")
@@ -177,7 +173,6 @@ def build_skeleton_feature_fusion_net(
 
 
 class TorchSkeletonFusionClassifier:
-    """Sklearn-compatible adapter for a paired skeleton/feature model."""
 
     def __init__(self, artifact: dict[str, Any], device: str = "cpu") -> None:
         torch, _nn = _require_torch()
@@ -255,7 +250,6 @@ class TorchSkeletonFusionClassifier:
 
 
 def load_fusion_model_artifact(model_path: str | Path, device: str = "cpu") -> dict[str, Any]:
-    """Load a weights-only skeleton-fusion artifact."""
     torch, _nn = _require_torch()
     try:
         artifact = torch.load(model_path, map_location="cpu", weights_only=True)

@@ -1,5 +1,3 @@
-"""Lightweight causal TCN for streaming fall-state classification."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,7 +25,6 @@ def build_temporal_conv_net(
     dropout: float = 0.20,
     pooling: str = "last",
 ):
-    """Build a causal residual TCN that consumes ``[batch, time, features]``."""
     torch, nn = _require_torch()
 
     class CausalConv1d(nn.Module):
@@ -100,7 +97,6 @@ def build_temporal_conv_net(
             return self.classifier(summary)
 
     model = TemporalConvNet()
-    # Keep construction deterministic across supported PyTorch versions.
     for module in model.modules():
         if isinstance(module, (nn.Conv1d, nn.Linear)):
             nn.init.kaiming_normal_(module.weight, nonlinearity="relu")
@@ -110,7 +106,6 @@ def build_temporal_conv_net(
 
 
 class TorchTemporalClassifier:
-    """Expose a saved TCN through the scikit-learn prediction interface."""
 
     def __init__(self, artifact: dict[str, Any], device: str = "cpu") -> None:
         torch, _nn = _require_torch()
@@ -163,7 +158,6 @@ class TorchTemporalClassifier:
 
 
 def load_deep_model_artifact(model_path: str | Path, device: str = "cpu") -> dict[str, Any]:
-    """Load a safe weights-only TCN artifact and attach its runtime adapter."""
     torch, _nn = _require_torch()
     try:
         artifact = torch.load(model_path, map_location="cpu", weights_only=True)

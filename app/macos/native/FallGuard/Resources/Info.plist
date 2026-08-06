@@ -26,10 +26,8 @@
 	<string>public.app-category.healthcare-fitness</string>
 	<key>NSCameraUsageDescription</key>
 	<string>FallGuard uses the camera to detect falls in real time. Video is processed entirely on this device.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>FallGuard can use the microphone to detect sounds of distress when a fall is detected.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2025 FallGuard. All rights reserved.</string>
+	<string>Copyright © 2026 FallGuard. All rights reserved.</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIconName</key>

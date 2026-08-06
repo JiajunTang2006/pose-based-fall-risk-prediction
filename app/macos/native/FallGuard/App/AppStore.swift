@@ -1,11 +1,9 @@
 import AppKit
+import AVFoundation
 import Combine
 import Foundation
 import OSLog
 
-// MARK: - Dashboard UI State
-
-/// All possible UI states for the Dashboard (per plan §17.7).
 enum DashboardState: Equatable {
     case launchingService
     case serviceFailed(String)
@@ -19,25 +17,22 @@ enum DashboardState: Equatable {
     case importingMedia
 }
 
-// MARK: - App Store
+enum EmergencyResponseState: Equatable {
+    case countdown(eventId: String, secondsRemaining: Int)
+    case helpNeeded(eventId: String, automatic: Bool)
+}
 
-/// Single source of truth for the app's UI state.
-///
-/// Owns the service layer and coordinates between the Python service,
-/// API client, status poller, and preview client.  All published properties
-/// are updated on the main actor.
-///
-/// Uses ``ObservableObject`` / ``@Published`` for macOS 11 compatibility
-/// (rather than the iOS 17+ ``@Observable`` macro).
 @MainActor
 final class AppStore: ObservableObject {
 
-    // MARK: Published state
-
     @Published var dashboardState: DashboardState = .launchingService
     @Published var connectionError: String?
+    @Published var notificationsAuthorized: Bool = false
+    @Published var cameraPermissionDenied: Bool = false
+    @Published var showingSafetyNotice: Bool = false
+    @Published private(set) var safetyNoticeAcknowledged: Bool = false
+    @Published var emergencyResponseState: EmergencyResponseState?
 
-    // Status data
     @Published var riskPercent: Int = 0
     @Published var riskScore: Double = 0
     @Published var confidencePercent: Int = 0
@@ -49,35 +44,27 @@ final class AppStore: ObservableObject {
     @Published var isLoading: Bool = true
     @Published var personVisible: Bool = true
 
-    // Settings
     @Published var settings: ServiceSettings?
     @Published var cameras: [Int] = [0]
     @Published var currentCameraIndex: Int = 0
 
-    // Profiles
     @Published var profiles: [ProfileDTO] = []
     @Published var activeProfileId: String?
     @Published var activeProfile: ProfileDTO?
 
-    // Events
     @Published var recentEvents: [EventDTO] = []
     @Published var sessions: [SessionDTO] = []
 
-    // Import
     @Published var importJob: ImportJobDTO?
     @Published var isImporting: Bool = false
 
-    // Preview
     @Published var previewImage: NSImage?
 
-    // Risk history for trend chart (last 48 values)
     @Published var riskHistory: [Int] = []
     @Published var monitoringStartTime: Date?
     @Published var totalAlerts: Int = 0
     @Published var highRiskEvents: Int = 0
     private let maxRiskHistory = 48
-
-    // MARK: Service layer
 
     let serviceManager: PythonServiceManager
     private(set) var apiClient: FallGuardAPIClient?
@@ -85,32 +72,40 @@ final class AppStore: ObservableObject {
     private(set) var previewClient: PreviewClient?
     let notificationService = NotificationService()
 
-    // MARK: Internal
-
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "AppStore")
     private var cancellables = Set<AnyCancellable>()
-    private var lastNotifiedEventId: String?
+    private var serviceStateCancellable: AnyCancellable?
+    private var lastNotifiedEventKey: String?
+    private var isRecoveringService = false
+    private var emergencyResponseTask: Task<Void, Never>?
+    private var handledEmergencyEventIds = Set<String>()
+    private var startAfterSafetyNotice = false
+    private let emergencyCountdownSeconds = 20
+    private let safetyAcknowledgementKey = "fallguard.safety_notice.v2.acknowledged"
 
-    // MARK: Init
-
-    /// - Parameters:
-    ///   - devPort: Non-nil to connect to a dev Python service.
-    ///   - devToken: Token for the dev service.
     init(devPort: Int? = nil, devToken: String? = nil) {
         serviceManager = PythonServiceManager(devPort: devPort, devToken: devToken)
+        safetyNoticeAcknowledged = UserDefaults.standard.bool(
+            forKey: safetyAcknowledgementKey
+        )
+        showingSafetyNotice = !safetyNoticeAcknowledged
+        serviceStateCancellable = serviceManager.$state
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.handleServiceStateChange()
+                }
+            }
     }
 
-    // MARK: Lifecycle
-
-    /// Launch the Python service and wire up all sub-systems.
     func bootstrap() async {
         dashboardState = .launchingService
         await serviceManager.start()
-        await handleServiceStateChange()
     }
 
-    /// Called when the app is about to terminate.
     func shutdown() async {
+        emergencyResponseTask?.cancel()
         statusPoller?.stop()
         previewClient?.stop()
         previewImage = nil
@@ -122,15 +117,27 @@ final class AppStore: ObservableObject {
         await serviceManager.stop()
     }
 
-    // MARK: Monitor actions
-
     func startMonitoring() async {
         guard let client = apiClient else { return }
+        guard safetyNoticeAcknowledged else {
+            startAfterSafetyNotice = true
+            showingSafetyNotice = true
+            return
+        }
+        let cameraStatus = await PermissionService.requestCameraPermission()
+        guard cameraStatus == .authorized else {
+            cameraPermissionDenied = true
+            connectionError = NSLocalizedString(
+                "error.camera.permission_denied", comment: ""
+            )
+            dashboardState = .serviceReadyIdle
+            return
+        }
+        cameraPermissionDenied = false
         dashboardState = .requestingCamera
         do {
             let resp = try await client.startMonitoring()
             if resp.ok {
-                // State will update via status poll
                 monitoringStartTime = Date()
                 riskHistory = []
                 totalAlerts = 0
@@ -161,8 +168,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // MARK: Settings
-
     func updateSettings(_ changes: [String: Any]) async {
         guard let client = apiClient else { return }
         do {
@@ -191,8 +196,6 @@ final class AppStore: ObservableObject {
             logger.warning("Failed to load cameras: \(error.localizedDescription)")
         }
     }
-
-    // MARK: Profiles
 
     func loadProfiles() async {
         guard let client = apiClient else { return }
@@ -236,8 +239,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // MARK: Events & Sessions
-
     func loadRecentEvents() async {
         guard let client = apiClient else { return }
         do {
@@ -246,6 +247,108 @@ final class AppStore: ObservableObject {
         } catch {
             logger.warning("Failed to load events: \(error.localizedDescription)")
         }
+    }
+
+    func updateEventFeedback(
+        id: String,
+        feedback: String,
+        notes: String,
+        annotationLabel: String? = nil,
+        prefallStartSeconds: Double? = nil,
+        fallStartSeconds: Double? = nil,
+        clipDurationSeconds: Double? = nil
+    ) async -> Bool {
+        guard let client = apiClient else { return false }
+        do {
+            let updated = try await client.updateEventFeedback(
+                id: id,
+                feedback: feedback,
+                notes: notes,
+                annotationLabel: annotationLabel,
+                prefallStartSeconds: prefallStartSeconds,
+                fallStartSeconds: fallStartSeconds,
+                clipDurationSeconds: clipDurationSeconds
+            )
+            if let index = recentEvents.firstIndex(where: { $0.id == id }) {
+                recentEvents[index] = updated
+            }
+            return true
+        } catch {
+            connectionError = error.localizedDescription
+            return false
+        }
+    }
+
+    func exportTrainingDataset(to outputDirectory: String)
+        async -> DatasetExportResponse? {
+        guard let client = apiClient else { return nil }
+        do {
+            return try await client.exportTrainingDataset(to: outputDirectory)
+        } catch {
+            connectionError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func clearHistory() async -> Bool {
+        guard let client = apiClient else { return false }
+        do {
+            let response = try await client.clearHistory()
+            guard response.ok else { return false }
+            recentEvents = []
+            sessions = []
+            totalAlerts = 0
+            highRiskEvents = 0
+            return true
+        } catch {
+            connectionError = error.localizedDescription
+            return false
+        }
+    }
+
+    func refreshNotificationAuthorization(requestIfNeeded: Bool) async {
+        notificationsAuthorized = requestIfNeeded
+            ? await notificationService.requestPermissionIfNeeded()
+            : notificationService.isAuthorized
+    }
+
+    func acknowledgeSafetyNotice() async {
+        let shouldStart = startAfterSafetyNotice
+        startAfterSafetyNotice = false
+        UserDefaults.standard.set(true, forKey: safetyAcknowledgementKey)
+        safetyNoticeAcknowledged = true
+        showingSafetyNotice = false
+        await refreshNotificationAuthorization(requestIfNeeded: true)
+        if shouldStart {
+            await startMonitoring()
+        }
+    }
+
+    func dismissSafetyNotice() {
+        startAfterSafetyNotice = false
+        showingSafetyNotice = false
+    }
+
+    func respondImOkay() async {
+        guard let eventId = activeEmergencyEventId else { return }
+        emergencyResponseTask?.cancel()
+        handledEmergencyEventIds.insert(eventId)
+        emergencyResponseState = nil
+        _ = await updateEventFeedback(
+            id: eventId,
+            feedback: "false_alarm",
+            notes: NSLocalizedString("emergency.feedback.im_okay", comment: "")
+        )
+    }
+
+    func respondNeedHelp() async {
+        guard let eventId = activeEmergencyEventId else { return }
+        await escalateEmergency(eventId: eventId, automatic: false)
+    }
+
+    func acknowledgeEmergencyHandled() {
+        emergencyResponseTask?.cancel()
+        emergencyResponseState = nil
     }
 
     func loadSessions() async {
@@ -257,8 +360,6 @@ final class AppStore: ObservableObject {
             logger.warning("Failed to load sessions: \(error.localizedDescription)")
         }
     }
-
-    // MARK: Import
 
     func startImport(paths: [String], outputDirectory: String? = nil) async {
         guard let client = apiClient else { return }
@@ -304,22 +405,21 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // MARK: Private — wiring
-
     private func handleServiceStateChange() async {
         switch serviceManager.state {
         case .ready(let baseURL, let token):
+            statusPoller?.stop()
+            previewClient?.stop()
+            cancellables.removeAll()
             let client = FallGuardAPIClient(baseURL: baseURL, token: token)
             apiClient = client
 
-            // Wire sub-services
             let poller = StatusPoller(client: client)
             statusPoller = poller
 
             let preview = PreviewClient(client: client)
             previewClient = preview
 
-            // Observe poller status updates
             poller.$latestStatus
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] status in
@@ -329,7 +429,6 @@ final class AppStore: ObservableObject {
                 }
                 .store(in: &cancellables)
 
-            // Observe poller errors
             poller.$consecutiveFailures
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] count in
@@ -340,10 +439,14 @@ final class AppStore: ObservableObject {
                     } else if count == 0 {
                         self?.connectionError = nil
                     }
+                    if count >= 5 {
+                        Task { @MainActor [weak self] in
+                            await self?.recoverServiceAfterConnectionFailure()
+                        }
+                    }
                 }
                 .store(in: &cancellables)
 
-            // Observe preview images
             preview.$currentImage
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] img in
@@ -351,20 +454,24 @@ final class AppStore: ObservableObject {
                 }
                 .store(in: &cancellables)
 
-            // Start polling
             poller.start()
             preview.start()
 
-            // Load initial data
             await refreshSettings()
             await refreshCameras()
             await loadProfiles()
             await loadRecentEvents()
+            await refreshNotificationAuthorization(
+                requestIfNeeded: safetyNoticeAcknowledged
+            )
 
             dashboardState = .serviceReadyIdle
+            isRecoveringService = false
             logger.info("App store ready")
 
         case .failed(let msg):
+            statusPoller?.stop()
+            previewClient?.stop()
             dashboardState = .serviceFailed(msg)
 
         case .starting:
@@ -381,7 +488,6 @@ final class AppStore: ObservableObject {
     private func applyStatus(_ status: ServiceStatus?) {
         guard let status = status else { return }
 
-        // Reset tracking when monitoring stops
         if isMonitoring && !status.monitoring {
             monitoringStartTime = nil
             riskHistory = []
@@ -405,7 +511,6 @@ final class AppStore: ObservableObject {
             visibility = Int(round(pred.visibility * 100))
             personVisible = status.monitoring && pred.state != .unknown
 
-            // Track risk history for trend chart
             if status.monitoring {
                 riskHistory.append(status.riskPercent)
                 if riskHistory.count > maxRiskHistory {
@@ -418,13 +523,10 @@ final class AppStore: ObservableObject {
             handleAPIError(err)
         }
 
-        // Update dashboard state
         updateDashboardState(from: status)
 
-        // Notify on fall/pre-fall events
         checkAndNotify(status)
 
-        // Sync window visibility to poller and preview
         statusPoller?.isMonitoring = status.monitoring
         previewClient?.isMonitoring = status.monitoring
     }
@@ -453,13 +555,8 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Send a native notification when the business state transitions to
-    /// warning or danger — but only once per event.
     private func checkAndNotify(_ status: ServiceStatus) {
         guard let pred = status.prediction else { return }
-        // The Python service tracks events through EventService.
-        // We poll recent events to catch new ones.
-        // For simplicity here: notify based on state transitions.
         let eventType: String?
         switch pred.businessState {
         case .danger: eventType = "fall"
@@ -467,23 +564,23 @@ final class AppStore: ObservableObject {
         default: eventType = nil
         }
 
-        guard let type = eventType else {
-            lastNotifiedEventId = nil
-            return
-        }
+        guard let type = eventType,
+              let eventId = status.activeEventId else { return }
 
-        // Notify once per continuous warning/fall episode. `sequence` changes
-        // on every status poll and would otherwise create notification spam.
-        guard type != lastNotifiedEventId else { return }
-        lastNotifiedEventId = type
+        let eventKey = "\(eventId):\(type)"
+        guard eventKey != lastNotifiedEventKey else { return }
+        lastNotifiedEventKey = eventKey
 
         notificationService.notifyIfNew(
-            eventId: type,
+            eventId: eventId,
             eventType: type,
             riskPercent: Int(round(pred.riskScore * 100))
         )
         totalAlerts += 1
         if type == "fall" { highRiskEvents += 1 }
+        if type == "fall" {
+            beginEmergencyCountdown(eventId: eventId)
+        }
     }
 
     private func handleAPIError(_ error: APIError) {
@@ -491,6 +588,116 @@ final class AppStore: ObservableObject {
     }
 
     private func handleAPIError(_ dto: ServiceErrorDTO) {
-        connectionError = dto.messageKey
+        connectionError = NSLocalizedString(dto.messageKey, comment: "")
+    }
+
+    private func recoverServiceAfterConnectionFailure() async {
+        guard !isRecoveringService else { return }
+        isRecoveringService = true
+        logger.warning("Restarting the local service after repeated connection failures")
+        await serviceManager.stop()
+        await serviceManager.start()
+    }
+
+    private var activeEmergencyEventId: String? {
+        switch emergencyResponseState {
+        case .countdown(let eventId, _):
+            return eventId
+        case .helpNeeded(let eventId, _):
+            return eventId
+        case .none:
+            return nil
+        }
+    }
+
+    private func beginEmergencyCountdown(eventId: String) {
+        guard !handledEmergencyEventIds.contains(eventId),
+              emergencyResponseState == nil else { return }
+
+        emergencyResponseTask?.cancel()
+        emergencyResponseState = .countdown(
+            eventId: eventId,
+            secondsRemaining: emergencyCountdownSeconds
+        )
+        bringMainWindowForward()
+
+        emergencyResponseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for remaining in stride(
+                from: self.emergencyCountdownSeconds - 1,
+                through: 0,
+                by: -1
+            ) {
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    return
+                }
+                guard case .countdown(let currentEventId, _) =
+                        self.emergencyResponseState,
+                      currentEventId == eventId else {
+                    return
+                }
+                if remaining == 0 {
+                    await self.escalateEmergency(
+                        eventId: eventId, automatic: true
+                    )
+                    return
+                }
+                self.emergencyResponseState = .countdown(
+                    eventId: eventId,
+                    secondsRemaining: remaining
+                )
+            }
+        }
+    }
+
+    private func escalateEmergency(eventId: String, automatic: Bool) async {
+        emergencyResponseTask?.cancel()
+        handledEmergencyEventIds.insert(eventId)
+        emergencyResponseState = .helpNeeded(
+            eventId: eventId,
+            automatic: automatic
+        )
+        bringMainWindowForward()
+        NSSound.beep()
+        notificationService.notifyHelpNeeded(
+            eventId: eventId, automatic: automatic
+        )
+        _ = await updateEventFeedback(
+            id: eventId,
+            feedback: "confirmed",
+            notes: NSLocalizedString(
+                automatic
+                    ? "emergency.feedback.timeout"
+                    : "emergency.feedback.help_requested",
+                comment: ""
+            )
+        )
+
+        emergencyResponseTask = Task { @MainActor [weak self] in
+            for _ in 0..<6 {
+                do {
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                } catch {
+                    return
+                }
+                guard let self,
+                      case .helpNeeded(let currentEventId, _) =
+                        self.emergencyResponseState,
+                      currentEventId == eventId else {
+                    return
+                }
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func bringMainWindowForward() {
+        NSApp.activate(ignoringOtherApps: true)
+        for window in NSApp.windows where window.canBecomeMain {
+            window.makeKeyAndOrderFront(nil)
+            break
+        }
     }
 }

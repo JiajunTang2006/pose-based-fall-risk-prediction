@@ -1,5 +1,3 @@
-"""Retrain each CV fusion fold on its complete outer-training set after epoch selection."""
-
 from __future__ import annotations
 
 import argparse

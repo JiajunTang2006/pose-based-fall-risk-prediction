@@ -89,6 +89,7 @@
 "events.empty" = "No events recorded. Start monitoring to detect fall events.";
 "events.count" = "%d events";
 "events.copy_id" = "Copy Event ID";
+"events.video_available" = "Event video available";
 "events.filter.all" = "All Types";
 "events.filter.fall" = "Falls";
 "events.filter.prefall" = "Pre-falls";
@@ -97,6 +98,37 @@
 "events.filter.resolved" = "Resolved";
 "event.type.fall" = "Fall Detected";
 "event.type.prefall" = "Pre-fall Warning";
+"event.status.open" = "In progress";
+"event.status.ended" = "Ended";
+"event.status.reviewed" = "Reviewed";
+"event.detail.close" = "Close";
+"event.detail.started" = "Started";
+"event.detail.ended" = "Ended";
+"event.detail.duration" = "Duration";
+"event.detail.peak_risk" = "Peak risk";
+"event.detail.avg_risk" = "Average risk";
+"event.detail.status" = "Status";
+"event.detail.id" = "Event ID";
+"event.detail.open_video" = "Play event video";
+"event.duration.format" = "%.1f seconds";
+"event.feedback.title" = "Event confirmation";
+"event.feedback.confirmed" = "Confirmed fall";
+"event.feedback.near_fall" = "Near fall";
+"event.feedback.normal" = "Normal activity";
+"event.feedback.false_alarm" = "False alarm";
+"event.feedback.unsure" = "Unsure";
+"event.feedback.notes" = "Notes";
+"event.feedback.save" = "Save feedback";
+"event.annotation.title" = "Training Data Annotation";
+"event.annotation.Normal" = "Normal";
+"event.annotation.Pre-fall" = "Pre-fall";
+"event.annotation.Fall" = "Fall";
+"event.annotation.clip_duration" = "Clip duration is about %.1f seconds. Play the clip and confirm each transition time.";
+"event.annotation.prefall_start" = "Pre-fall starts";
+"event.annotation.fall_start" = "Fall starts";
+"event.annotation.seconds" = "seconds";
+"event.annotation.hint" = "Export keeps the 30 Normal frames before Pre-fall and up to 60 Fall frames.";
+"event.annotation.normal_excluded" = "A fully Normal confirmation is saved but excluded from training exports.";
 
 /* Import Media 页面：文件选择、处理进度和结果文字 */
 "import.title" = "Import Media";
@@ -107,6 +139,7 @@
 "import.selected" = "Selected Files";
 "import.clear" = "Clear";
 "import.start" = "Start Import";
+"import.frame_progress" = "Frame %d / %d";
 "import.complete" = "Import Complete";
 "import.output" = "Output:";
 "import.new" = "New Import";
@@ -129,6 +162,7 @@
 "profiles.activate" = "Activate";
 "profiles.active_label" = "Active";
 "profiles.delete" = "Delete";
+"profiles.delete_requires_another" = "At least one profile is required";
 "profiles.delete_title" = "Delete Profile?";
 "profiles.delete_message" = "Are you sure you want to delete \"%@\"? This cannot be undone.";
 "profiles.fall_count" = "%d falls";
@@ -149,20 +183,36 @@
 "settings.notifications" = "Notifications";
 "settings.sound_alert" = "Play alert sound on fall detection";
 "settings.sound_note" = "A system alert sound will play when a fall is detected.";
+"settings.system_notifications_enabled" = "System notifications enabled";
+"settings.system_notifications_disabled" = "System notifications unavailable";
+"settings.open_notification_settings" = "Open System Settings";
+"settings.startup" = "Startup";
+"settings.launch_at_login" = "Launch FallGuard after login";
+"settings.launch_at_login_note" = "FallGuard continues running in the menu bar after its main window closes.";
 "settings.appearance" = "Appearance";
 "settings.theme" = "Theme";
 "settings.language" = "Language";
 "settings.version" = "Version %@";
 "settings.api_version" = "API Version";
 "settings.service" = "Service";
-"settings.copyright" = "Copyright © 2025 FallGuard. All rights reserved.";
+"settings.copyright" = "Copyright © 2026 FallGuard. All rights reserved.";
+"settings.view_safety_notice" = "View Usage Notice";
 "settings.data_management" = "Data Management";
 "settings.export_logs" = "Export Logs";
 "settings.export_logs_detail" = "Save diagnostic logs as a JSON file.";
+"settings.export_dataset" = "Export Training Dataset";
+"settings.export_dataset_detail" = "Export reviewed event videos containing Pre-fall or Fall with a compatible annotation CSV.";
+"settings.export_dataset_choose" = "Export Here";
+"settings.export_dataset_complete" = "Training Dataset Exported";
+"settings.export_dataset_open" = "Open in Finder";
+"settings.export_dataset_result" = "Exported %d videos and %d frame-interval annotations.";
 "settings.clear_history" = "Clear History";
 "settings.clear_history_detail" = "Remove all event history and monitoring data.";
-"settings.open_data" = "Open Data Folder";
-"settings.open_data_detail" = "Open the application data directory in Finder.";
+"settings.open_data" = "Open Media & Data Folder";
+"settings.open_data_detail" = "Reveal event videos, thumbnails, and the database in Finder.";
+"settings.clear_history_confirm_title" = "Clear all history?";
+"settings.clear_history_confirm_message" = "This deletes events, monitoring sessions, risk history, and event media saved by FallGuard. This cannot be undone.";
+"settings.clear_history_complete" = "History cleared";
 
 /* Settings > Appearance：主题选项 */
 "theme.system" = "System";
@@ -173,6 +223,8 @@
 "sensitivity.low" = "Low";
 "sensitivity.medium" = "Medium";
 "sensitivity.high" = "High";
+"threshold.fall_threshold" = "Fall threshold";
+"threshold.prefall_threshold" = "Pre-fall threshold";
 
 /* macOS 屏幕最顶部系统菜单：File、Edit、View、Window、Help 等 */
 "menu.about" = "About FallGuard";
@@ -207,6 +259,33 @@
 "notification.fall.body" = "A possible fall has been detected (risk: %d%%). Please check immediately.";
 "notification.prefall.title" = "Pre-fall Warning";
 "notification.prefall.body" = "Unsteady movement detected (risk: %d%%). Stay alert.";
+"notification.help_needed.title" = "Immediate Attention Needed";
+"notification.help_needed.timeout" = "The fall response countdown ended without confirmation. FallGuard currently alerts only on this Mac; check the scene immediately.";
+"notification.help_needed.requested" = "The user selected “Need Help.” FallGuard currently alerts only on this Mac; check the scene immediately.";
+
+/* First-launch safety notice */
+"safety.title" = "Before You Use FallGuard";
+"safety.subtitle" = "Understand the limits of assistive monitoring";
+"safety.not_medical" = "FallGuard is an assistive monitoring tool. It is not a medical device and does not provide medical diagnosis.";
+"safety.not_emergency_service" = "FallGuard does not replace emergency services, caregivers, or another reliable way to request help.";
+"safety.camera_local" = "Camera video and detection stay on this Mac unless you explicitly export a file.";
+"safety.test_regularly" = "Regularly test the camera, sound, and system notifications, and keep another reliable way to request help.";
+"safety.consent" = "By selecting “I Understand,” you acknowledge these limitations. Monitoring cannot start until you confirm.";
+"safety.acknowledge" = "I Understand";
+
+/* 20-second local response flow after a confirmed fall */
+"emergency.countdown.title" = "A Fall Was Detected. Are You Okay?";
+"emergency.countdown.detail" = "If there is no response, FallGuard will escalate to a persistent alert on this Mac. It will not contact anyone automatically.";
+"emergency.countdown.accessibility" = "%d seconds remaining";
+"emergency.im_okay" = "I’m Okay";
+"emergency.need_help" = "Need Help";
+"emergency.help.title" = "Help Is Needed";
+"emergency.help.timeout_detail" = "The response countdown ended without confirmation. Check the scene immediately; this version does not contact external responders.";
+"emergency.help.requested_detail" = "The user explicitly requested help. Respond at the scene or call emergency services immediately.";
+"emergency.handled" = "Mark as Handled";
+"emergency.feedback.im_okay" = "The user selected “I’m Okay” during the fall response countdown.";
+"emergency.feedback.timeout" = "The fall response countdown ended without confirmation.";
+"emergency.feedback.help_requested" = "The user selected “Need Help” during the fall response countdown.";
 
 /* 退出程序等确认弹窗 */
 "alert.quit.monitoring.title" = "Monitoring is Active";
@@ -224,7 +303,11 @@
 "error.connection.lost" = "Connection to the background service was lost.";
 "error.startup.cancelled" = "Service startup was cancelled.";
 "error.import.stop_monitoring" = "Please stop monitoring before importing media.";
+"error.camera.permission_denied" = "FallGuard does not have camera access. Allow it in System Settings under Privacy & Security > Camera.";
+"camera.permission.title" = "Camera Access Required";
+"camera.permission.open_settings" = "Open System Settings";
 
 /* 多个页面共用的通用按钮文字 */
 "cancel" = "Cancel";
 "delete" = "Delete";
+"ok" = "OK";

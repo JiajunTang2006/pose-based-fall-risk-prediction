@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from collections import deque
@@ -35,9 +33,7 @@ DEFAULT_CONTROLLED_UPRIGHT_ANGULAR_VELOCITY = 100.0
 DEFAULT_CONTROLLED_UPRIGHT_CENTER_DROP_DELTA = 0.10
 NORMAL_STATES = {"Normal"}
 
-
 DEFAULT_HMM_BUFFER_SIZE = 25
-
 
 DEFAULT_FALL_VALIDATION_HISTORY = 30
 DEFAULT_FALL_PREFALL_MEMORY = 12
@@ -52,13 +48,6 @@ DEFAULT_FALL_CENTER_DROP_DELTA = 0.10
 
 @dataclass(frozen=True)
 class TemporalSensitivityProfile:
-    """
-    Runtime sensitivity profile for sequence-level gating.
-
-    The classifier still sees every window independently.  This profile controls
-    how much temporal evidence is required before a Pre-fall/Fall becomes visible
-    to the application.
-    """
 
     name: str
     prefall_probability_threshold: float
@@ -76,8 +65,6 @@ class TemporalSensitivityProfile:
 
 
 TEMPORAL_SENSITIVITY_PROFILES = {
-    # High is intentionally still a little calmer than the previous runtime:
-    # no single Pre-fall window can alert by itself.
     "high": TemporalSensitivityProfile(
         name="high",
         prefall_probability_threshold=0.06,
@@ -87,9 +74,6 @@ TEMPORAL_SENSITIVITY_PROFILES = {
         stable_normal_frames=1,
         normal_memory=30,
         prefall_memory=20,
-        # Keep the already well-performing high profile on its original
-        # classifier/HMM Fall transition; the probability fallback targets the
-        # observed medium-profile argmax tie problem.
         fall_probability_threshold=1.00,
         fall_window=2,
         fall_confirm_count=1,
@@ -120,8 +104,6 @@ TEMPORAL_SENSITIVITY_PROFILES = {
         stable_normal_frames=1,
         normal_memory=15,
         prefall_memory=10,
-        # Keep low conservative until real-scene low-sensitivity samples are
-        # available; a 0.50 fallback reduced offline Fall event detection.
         fall_probability_threshold=1.00,
         fall_window=4,
         fall_confirm_count=3,
@@ -134,7 +116,6 @@ TEMPORAL_SENSITIVITY_PROFILES = {
 def resolve_temporal_sensitivity_profile(
     profile: TemporalSensitivityProfile | str,
 ) -> TemporalSensitivityProfile:
-    """Return a known temporal sensitivity profile by name."""
     if isinstance(profile, TemporalSensitivityProfile):
         return profile
     key = str(profile).strip().lower()
@@ -145,10 +126,6 @@ def resolve_temporal_sensitivity_profile(
         raise ValueError(f"Unknown temporal sensitivity {profile!r}; choose one of: {choices}") from exc
 
 
-# ═══════════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════════
-
 def build_hmm_transition_matrix(
     stay_normal: float = 0.92,
     stay_prefall: float = 0.80,
@@ -158,18 +135,15 @@ def build_hmm_transition_matrix(
     prefall_to_normal: float = 0.08,
     fall_to_prefall: float = 0.10,
 ) -> np.ndarray:
-
     T = np.zeros((3, 3))
     T[0] = [stay_normal, normal_to_prefall, max(0.0, 1.0 - stay_normal - normal_to_prefall)]
     T[1] = [prefall_to_normal, stay_prefall, prefall_to_fall]
     T[2] = [max(0.0, 1.0 - stay_fall - fall_to_prefall), fall_to_prefall, stay_fall]
-
     T = T / T.sum(axis=1, keepdims=True)
     return T
 
 
 class HMMStateSmoother:
-
 
     def __init__(
         self,
@@ -186,30 +160,24 @@ class HMMStateSmoother:
         self._initial_probs = (
             initial_probs if initial_probs is not None else [0.98, 0.02, 0.0]
         )
-
         self._prob_buffer: deque[list[float]] = deque(maxlen=self._buffer_size)
         self._state_idx = {0: "Normal", 1: "Pre-fall", 2: "Fall"}
 
     def reset(self) -> None:
-
         self._prob_buffer.clear()
 
     def smooth(self, probabilities: list[float]) -> str:
-
         self._prob_buffer.append(list(probabilities))
 
         if len(self._prob_buffer) < self._buffer_size:
-
             idx = max(range(len(probabilities)), key=lambda i: probabilities[i])
             return self._state_idx[idx]
-
 
         obs = list(self._prob_buffer)
         state_seq = self._viterbi(obs)
         return self._state_idx[state_seq[-1]]
 
     def _viterbi(self, observations: list[list[float]]) -> list[int]:
-
         n_states = 3
         T_len = len(observations)
         if T_len == 0:
@@ -221,11 +189,9 @@ class HMMStateSmoother:
         dp = np.full((T_len, n_states), -np.inf)
         bp = np.zeros((T_len, n_states), dtype=int)
 
-
         for j in range(n_states):
             obs_prob = max(observations[0][j], 1e-12)
             dp[0][j] = log_init[j] + np.log(obs_prob)
-
 
         for t in range(1, T_len):
             for j in range(n_states):
@@ -233,7 +199,6 @@ class HMMStateSmoother:
                 best_i = int(np.argmax(scores))
                 dp[t][j] = scores[best_i] + np.log(max(observations[t][j], 1e-12))
                 bp[t][j] = best_i
-
 
         states = [0] * T_len
         states[T_len - 1] = int(np.argmax(dp[T_len - 1]))
@@ -244,7 +209,6 @@ class HMMStateSmoother:
 
 @dataclass(frozen=True)
 class FallMotionEvidence:
-
 
     max_vertical_velocity: float
     max_vertical_accel: float
@@ -258,7 +222,6 @@ class FallMotionEvidence:
 
 @dataclass(frozen=True)
 class PostureEvidence:
-    """Stable posture cues used to avoid treating lying as a fall event."""
 
     mean_body_height: float
     mean_aspect_ratio: float
@@ -272,14 +235,7 @@ class PostureEvidence:
 
 
 class TemporalSequenceGate:
-    """
-    Product-facing sequence gate for Normal -> Pre-fall -> Fall transitions.
-
-    This layer treats Fall as an event, not just a posture.  A static lying or
-    low-posture sequence can look similar to a fallen body in one window, but it
-    should not become Fall unless the recent history contains a stable Normal
-    start and a short abnormal transition.
-    """
+    """Stabilize temporal transitions and latch confirmed Fall states until recovery."""
 
     def __init__(
         self,
@@ -315,7 +271,6 @@ class TemporalSequenceGate:
         self._internal_state = "Normal"
 
     def acknowledge_fall(self) -> None:
-        """Clear a latched Fall after explicit operator acknowledgement."""
         self._prefall_candidates.clear()
         self._fall_candidates.clear()
         self._prefall_consecutive_count = 0
@@ -329,7 +284,6 @@ class TemporalSequenceGate:
 
     @property
     def fall_latched(self) -> bool:
-        """Whether a confirmed Fall is waiting for acknowledgement/recovery."""
         return self._internal_state == "Fall"
 
     def validate(
@@ -339,8 +293,6 @@ class TemporalSequenceGate:
         probabilities: Mapping[str, float],
         window_rows: Sequence[dict[str, float]],
     ) -> tuple[str, str]:
-
-
         posture = _posture_evidence(window_rows)
         motion = _motion_evidence(window_rows)
 
@@ -350,9 +302,6 @@ class TemporalSequenceGate:
         prefall_probability = max(0.0, min(1.0, float(probabilities.get("Pre-fall", 0.0))))
         fall_probability = max(0.0, min(1.0, float(probabilities.get("Fall", 0.0))))
 
-        # Clear, slowly moving upright posture is trusted as Normal evidence.
-        # It bypasses model/HMM false positives while still refreshing temporal
-        # memory for a later real transition.
         controlled_upright = (
             posture.is_upright_normal
             and motion.max_vertical_velocity < DEFAULT_CONTROLLED_UPRIGHT_VERTICAL_VELOCITY
@@ -360,12 +309,6 @@ class TemporalSequenceGate:
             and motion.center_drop_delta < DEFAULT_CONTROLLED_UPRIGHT_CENTER_DROP_DELTA
         )
 
-        # The classifier/HMM can remain on Pre-fall when Fall is a close second
-        # (or tied because of smoothing).  Requiring Fall to win the argmax made
-        # a sustained ~50% Fall probability invisible to the sequence vote,
-        # especially in the medium profile.  Treat a profile-specific Fall
-        # probability as a candidate too; the existing Normal -> Pre-fall
-        # history and multi-window vote still have to confirm the event.
         classified_fall = state == "Fall" or alert_state == "Fall"
         probability_fall_candidate = (
             not controlled_upright
@@ -374,8 +317,6 @@ class TemporalSequenceGate:
             and fall_probability >= self.profile.fall_probability_threshold
         )
         raw_fall = not controlled_upright and (classified_fall or probability_fall_candidate)
-
-
         raw_prefall = (
             not controlled_upright
             and not raw_fall
@@ -414,16 +355,11 @@ class TemporalSequenceGate:
             and (not posture.is_static_low_posture or warm_start_signal)
             and prefall_probability >= self.profile.prefall_probability_threshold
         )
-        # A raw Fall at warm start has little Pre-fall probability by design.
-        # Downgrade it to a temporary Pre-fall warning instead of silently
-        # accepting it as Fall or discarding it as Normal.
         if warm_start_signal and raw_fall:
             valid_prefall = True
         self._update_prefall_memory(valid_prefall)
 
         has_prefall_context = self._has_recent_prefall() or self._prefall_is_confirmed()
-
-
         valid_fall_candidate = raw_fall and has_prefall_context and self._has_recent_normal()
         self._fall_candidates.append(valid_fall_candidate)
 
@@ -434,10 +370,6 @@ class TemporalSequenceGate:
                 self._prefall_age = 0
                 self._internal_state = "Fall"
                 return "Fall", "Fall"
-            # A probability-only candidate is deliberately weaker than a
-            # classifier/HMM Fall.  Keep the already-confirmed warning visible
-            # while its multi-window Fall vote accumulates; dropping back to
-            # Normal here would prevent medium/low candidates from persisting.
             if probability_fall_candidate and not classified_fall:
                 self._internal_state = "Pre-fall"
                 return "Pre-fall", "Pre-fall"
@@ -526,7 +458,6 @@ class TemporalSequenceGate:
         if self._fall_recovery_normal_count < self.profile.fall_recovery_normal_frames:
             return "Fall", "Fall"
 
-
         self._prefall_candidates.clear()
         self._fall_candidates.clear()
         self._prefall_consecutive_count = 0
@@ -539,7 +470,6 @@ class TemporalSequenceGate:
 
 
 class TemporalFallValidator:
-
 
     def __init__(
         self,
@@ -649,7 +579,6 @@ class TemporalFallValidator:
 
 class MachineLearningFallPredictor:
 
-
     def __init__(
         self,
         model_path: str | Path,
@@ -668,10 +597,7 @@ class MachineLearningFallPredictor:
         automatic_fall_recovery: bool = False,
         fall_validator_settings: Mapping[str, float | int] | None = None,
     ) -> None:
-
-
         artifact = load_model_artifact(model_path)
-
 
         self.model = artifact["model"]
         self._requires_skeleton = bool(artifact.get("requires_skeleton", False))
@@ -703,9 +629,7 @@ class MachineLearningFallPredictor:
         )
         self.min_visibility = min_visibility
 
-
         self.extractor = FeatureExtractor(min_visibility=min_visibility)
-
 
         self._window: deque[dict[str, float]] = deque(maxlen=self.window_size)
         self._raw_window: deque[dict[str, float]] = deque(maxlen=self.window_size)
@@ -713,22 +637,17 @@ class MachineLearningFallPredictor:
         self._missing_pose_count = 0
         self._uncalibrated_non_upright_count = 0
 
-
         self._risk_history: deque[float] = deque(maxlen=self.smoothing_window)
-
 
         self._baseline_samples: list[float] = []
         self._baseline_center_y: float | None = None
 
-
         self._prefall_alert_count = 0
-
 
         self._use_hmm = bool(use_hmm)
         self._hmm: HMMStateSmoother | None = None
         if self._use_hmm:
             self._hmm = HMMStateSmoother(buffer_size=hmm_buffer_size)
-
 
         if use_accel is not None:
             self._use_accel = bool(use_accel)
@@ -746,9 +665,6 @@ class MachineLearningFallPredictor:
             )
 
         self._use_temporal_fall_validation = bool(use_temporal_fall_validation)
-        # Kept for compatibility with the macOS app's previous predictor API.
-        # The strict TemporalSequenceGate below supersedes the older motion-only
-        # Fall validator, so those legacy thresholds are intentionally ignored.
         _ = fall_validator_settings
         self.temporal_sensitivity = resolve_temporal_sensitivity_profile(temporal_sensitivity)
         self.temporal_gate_stride = _resolve_positive_int_setting(
@@ -773,7 +689,6 @@ class MachineLearningFallPredictor:
 
     @property
     def baseline_center_y(self) -> float | None:
-
         return self._baseline_center_y
 
     def predict(
@@ -782,7 +697,6 @@ class MachineLearningFallPredictor:
         frame_index: int,
         timestamp: float,
     ) -> Prediction:
-
         features = self.extractor.extract(landmarks, frame_index, timestamp)
         if self._requires_skeleton:
             from .skeleton_dataset import landmarks_to_skeleton_frame
@@ -792,11 +706,9 @@ class MachineLearningFallPredictor:
                 landmarks_to_skeleton_frame(landmarks, previous_frame=previous_skeleton)
             )
 
-
         center_drop = self._update_baseline_and_center_drop(features)
 
         raw_row = pose_features_to_ml_row(features, center_drop)
-
 
         has_partial_measurement = features.has_pose and (
             features.torso_valid
@@ -828,8 +740,6 @@ class MachineLearningFallPredictor:
                         features=features,
                         center_drop=center_drop,
                     )
-
-
             latched_fall = self._temporal_sequence_gate.fall_latched
             return self._prediction(
                 frame_index=frame_index,
@@ -844,8 +754,6 @@ class MachineLearningFallPredictor:
             )
         self._missing_pose_count = 0
 
-        # Robust artifacts first collect a fixed standing reference.  Partial
-        # frames are usable after calibration, but cannot establish the baseline.
         model_row = raw_row
         if self._standing_calibrator is not None:
             raw_posture = _posture_evidence([raw_row])
@@ -887,12 +795,8 @@ class MachineLearningFallPredictor:
                 )
             model_row = calibrated_row
 
-        # 3. Keep model-space and raw image-space windows separately.  The model
-        # sees calibrated ratios; the product state gate still sees physical raw
-        # posture values and therefore keeps its existing thresholds meaningful.
         self._window.append(model_row)
         self._raw_window.append(raw_row)
-
 
         if len(self._window) < self.window_size:
             self._prefall_alert_count = 0
@@ -921,7 +825,6 @@ class MachineLearningFallPredictor:
         features: PoseFeatures,
         center_drop: float,
     ) -> Prediction:
-        """Run model + temporal gate on the current calibrated/raw windows."""
         window_list = list(self._window)
         if self._use_accel:
             base_feature_cols = tuple(
@@ -970,7 +873,6 @@ class MachineLearningFallPredictor:
         )
 
     def reset(self) -> None:
-
         self.extractor.reset()
         self._window.clear()
         self._raw_window.clear()
@@ -996,7 +898,6 @@ class MachineLearningFallPredictor:
         }
 
     def acknowledge_fall(self) -> None:
-        """Acknowledge a latched Fall without discarding calibration/windows."""
         self._temporal_sequence_gate.acknowledge_fall()
         self._last_temporal_gate_frame = None
         self._last_temporal_state = "Normal"
@@ -1019,7 +920,6 @@ class MachineLearningFallPredictor:
         )
 
     def _update_baseline_and_center_drop(self, features: PoseFeatures) -> float:
-
         if features.center_valid and self._baseline_center_y is None:
             self._baseline_samples.append(features.body_center_y)
             if len(self._baseline_samples) >= self.baseline_frames:
@@ -1033,31 +933,24 @@ class MachineLearningFallPredictor:
         return max(0.0, features.body_center_y - baseline)
 
     def _predict_sample(self, sample: list[list[float]]) -> tuple[str, float, str]:
-
         if hasattr(self.model, "predict_proba"):
             probabilities = self.model.predict_proba(sample)[0]
             classes = [str(label) for label in self.model.classes_]
             self._last_state_probabilities = _state_probabilities(classes, probabilities)
 
-
             if self._use_hmm and self._hmm is not None:
-
-
                 hmm_probs = [
                     _normal_probability(classes, probabilities),
                     _state_probability(classes, probabilities, "Pre-fall"),
                     _state_probability(classes, probabilities, "Fall"),
                 ]
                 state = self._hmm.smooth(hmm_probs)
-
                 risk_score = _fall_probability(classes, probabilities)
                 alert_state = self._alert_state_from_probabilities(state, classes, probabilities)
                 return state, risk_score, alert_state
 
-
             best_index = max(range(len(probabilities)), key=lambda index: probabilities[index])
             state = normalize_state(classes[best_index])
-
 
             risk_score = _fall_probability(classes, probabilities)
             alert_state = self._alert_state_from_probabilities(state, classes, probabilities)
@@ -1080,7 +973,6 @@ class MachineLearningFallPredictor:
         classes: Sequence[str],
         probabilities: Sequence[float],
     ) -> str:
-
         if state == "Fall":
             self._prefall_alert_count = 0
             return "Fall"
@@ -1110,7 +1002,6 @@ class MachineLearningFallPredictor:
         alert_state: str | None = None,
         system_status: str | None = None,
     ) -> Prediction:
-
         self._risk_history.append(risk_score)
         smoothed_risk = mean(self._risk_history) if self._risk_history else 0.0
         return Prediction(
@@ -1138,7 +1029,6 @@ class MachineLearningFallPredictor:
 
 
 def load_model_artifact(model_path: str | Path) -> dict:
-
     model_path = Path(model_path)
     if model_path.suffix.lower() in {".pt", ".pth"}:
         from .deep_model import load_deep_model_artifact
@@ -1156,8 +1046,7 @@ def load_model_artifact(model_path: str | Path) -> dict:
         import joblib
     except ImportError as exc:
         raise RuntimeError(
-            "ML prediction requires joblib. Install dependencies with: "
-            "python -m pip install -r requirements.txt"
+            "ML inference requires joblib. Run: python -m pip install -r requirements.txt"
         ) from exc
 
     artifact = joblib.load(model_path)
@@ -1177,7 +1066,6 @@ def load_model_artifact(model_path: str | Path) -> dict:
 
 
 def normalize_state(label: str) -> str:
-
     cleaned = label.strip()
     lower = cleaned.lower().replace("_", "-")
     if lower in {"1", "fall", "fallen"}:
@@ -1256,7 +1144,6 @@ def _motion_evidence(
     angular_accel_threshold: float = DEFAULT_FALL_ANGULAR_ACCEL,
     center_drop_delta_threshold: float = DEFAULT_FALL_CENTER_DROP_DELTA,
 ) -> FallMotionEvidence:
-    """Build dynamic fall evidence from one runtime window."""
     if not window_rows:
         return FallMotionEvidence(
             max_vertical_velocity=0.0,
@@ -1299,7 +1186,6 @@ def _motion_evidence(
 
 
 def _posture_evidence(window_rows: Sequence[Mapping[str, object]]) -> PostureEvidence:
-    """Build static posture evidence to separate lying/low posture from fall events."""
     pose_rows = [row for row in window_rows if _row_float(row, "has_pose") > 0.0]
     if not pose_rows:
         return PostureEvidence(
@@ -1392,10 +1278,6 @@ def _resolve_positive_int_setting(
     explicit_value: int | None,
     default_value: int,
 ) -> int:
-    """
-    Resolve integer settings with a clear priority:
-    explicit constructor argument > saved model artifact > project default.
-    """
     value = explicit_value if explicit_value is not None else artifact.get(name, default_value)
     return max(1, int(value))
 
@@ -1406,15 +1288,11 @@ def _resolve_probability_setting(
     explicit_value: float | None,
     default_value: float,
 ) -> float:
-    """
-    Resolve probability-like settings and keep them inside [0, 1].
-    """
     value = explicit_value if explicit_value is not None else artifact.get(name, default_value)
     return max(0.0, min(1.0, float(value)))
 
 
 def _state_probabilities(classes: Sequence[str], probabilities: Sequence[float]) -> dict[str, float]:
-    """Return normalized state probabilities used by temporal gates."""
     return {
         "Normal": _normal_probability(classes, probabilities),
         "Pre-fall": _state_probability(classes, probabilities, "Pre-fall"),
@@ -1423,7 +1301,6 @@ def _state_probabilities(classes: Sequence[str], probabilities: Sequence[float])
 
 
 def _fall_probability(classes: Sequence[str], probabilities: Sequence[float]) -> float:
-
     fall_prob = 0.0
     for label, probability in zip(classes, probabilities):
         state = normalize_state(label)
@@ -1435,7 +1312,6 @@ def _fall_probability(classes: Sequence[str], probabilities: Sequence[float]) ->
 
 
 def _state_probability(classes: Sequence[str], probabilities: Sequence[float], target_state: str) -> float:
-    """Return the summed probability for one normalized state."""
     total = 0.0
     for label, probability in zip(classes, probabilities):
         if normalize_state(label) == target_state:
@@ -1444,7 +1320,6 @@ def _state_probability(classes: Sequence[str], probabilities: Sequence[float], t
 
 
 def _normal_probability(classes: Sequence[str], probabilities: Sequence[float]) -> float:
-    """Return summed probability for normalized Normal states."""
     total = 0.0
     for label, probability in zip(classes, probabilities):
         if normalize_state(label) in NORMAL_STATES:
@@ -1453,7 +1328,6 @@ def _normal_probability(classes: Sequence[str], probabilities: Sequence[float]) 
 
 
 def _delta(rows: Sequence[Mapping[str, object]], key: str) -> list[float]:
-    """Return frame-to-frame deltas for one numeric row field."""
     if not rows:
         return [0.0]
 
@@ -1465,7 +1339,6 @@ def _delta(rows: Sequence[Mapping[str, object]], key: str) -> list[float]:
 
 
 def _positive_delta(rows: Sequence[Mapping[str, object]], key: str) -> list[float]:
-    """Return positive frame-to-frame deltas for one numeric row field."""
     return [max(0.0, value) for value in _delta(rows, key)]
 
 

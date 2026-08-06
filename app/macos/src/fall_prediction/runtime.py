@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 def prepare_runtime_cache() -> Path:
-    """Point heavy libraries at a stable writable cache directory."""
     cache_root = _cache_root()
     _set_cache_env("MPLCONFIGDIR", cache_root / "matplotlib")
     _set_cache_env("YOLO_CONFIG_DIR", cache_root / "ultralytics")

@@ -1,40 +1,27 @@
-"""
-Google Material Design 3 token system for FallGuard.
-Surface layering: bg → surface → surface-container → card.
-8px spacing grid throughout.
-"""
-
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtWidgets import QApplication
 
-# ── M3 Color Tokens ──────────────────────────────────────────────
 
 LIGHT = {
-    # Primary (actions, focus, active states)
     "primary":           "#22C55E",
     "on_primary":        "#FFFFFF",
     "primary_container": "#EAF7EF",
     "on_primary_container": "#14532D",
 
-    # Secondary
     "secondary":         "#16A34A",
     "secondary_container": "#DCFCE7",
 
-    # Tertiary / accent
     "tertiary":          "#16A34A",
 
-    # Error
     "error":             "#EA4335",
     "error_container":   "#FCE8E6",
     "on_error_container": "#C5221F",
 
-    # Warning
     "warning":           "#F59E0B",
     "warning_container": "#FEF3C7",
 
-    # Surface layering (light)
     "surface_dim":       "#F8FAFC",
     "surface":           "#F8FAFC",
     "surface_bright":    "#FFFFFF",
@@ -44,23 +31,19 @@ LIGHT = {
     "surface_container_high":   "#E8EAED",
     "surface_container_highest":"#E2E4E8",
 
-    # On-surface (text)
     "on_surface":        "#1F2937",
     "on_surface_variant":"#4B5563",
     "on_surface_secondary": "#6B7280",
     "outline":           "#9CA3AF",
     "outline_variant":   "#E5E7EB",
 
-    # Shadows / elevation
     "shadow_1": "0 1px 2px rgba(16, 24, 40, 0.04)",
     "shadow_2": "0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04)",
     "shadow_3": "0 2px 8px rgba(16, 24, 40, 0.06), 0 1px 4px rgba(16, 24, 40, 0.04)",
 
-    # Monitor / video
     "monitor_bg":        "#111827",
     "monitor_text":      "rgba(209, 213, 219, 1)",
 
-    # Semantic backgrounds
     "success_bg":        "#EAF7EF",
     "success_fg":        "#16A34A",
     "idle_bg":           "#F1F3F4",
@@ -70,42 +53,34 @@ LIGHT = {
     "danger_bg":         "#FEE2E2",
     "danger_fg":         "#EF4444",
 
-    # Button states
     "primary_hover":     "#16A34A",
     "primary_pressed":   "#15803D",
     "disabled_bg":       "#DADCE0",
     "disabled_fg":       "#9AA0A6",
 
-    # Chart
     "chart_grid": "#E5E7EB",
     "chart_text": "#6B7280",
     "ring_track": "#DFF3E7",
 }
 
 DARK = {
-    # Primary
     "primary":           "#4ADE80",
     "on_primary":        "#052E16",
     "primary_container": "rgba(34, 197, 94, 0.18)",
     "on_primary_container": "#86EFAC",
 
-    # Secondary
     "secondary":         "#86EFAC",
     "secondary_container": "rgba(34, 197, 94, 0.18)",
 
-    # Tertiary
     "tertiary":          "#86EFAC",
 
-    # Error
     "error":             "#F28B82",
     "error_container":   "rgba(242, 139, 130, 0.18)",
     "on_error_container": "#F28B82",
 
-    # Warning
     "warning":           "#FBBF24",
     "warning_container": "rgba(245, 158, 11, 0.18)",
 
-    # Surface layering (dark) — deep navy, not black
     "surface_dim":       "#0B1220",
     "surface":           "#0B1220",
     "surface_bright":    "#101828",
@@ -115,23 +90,19 @@ DARK = {
     "surface_container_high":   "#172033",
     "surface_container_highest":"#1A2740",
 
-    # On-surface (text)
     "on_surface":        "#F9FAFB",
     "on_surface_variant":"#CBD5E1",
     "on_surface_secondary":"#94A3B8",
     "outline":           "#64748B",
     "outline_variant":   "#263244",
 
-    # Shadows (subtler in dark)
     "shadow_1": "0 1px 2px rgba(0,0,0,0.25)",
     "shadow_2": "0 1px 3px rgba(0,0,0,0.35)",
     "shadow_3": "0 2px 8px rgba(0,0,0,0.40)",
 
-    # Monitor / video
     "monitor_bg":        "#0A0D12",
     "monitor_text":      "rgba(209, 213, 219, 0.85)",
 
-    # Semantic backgrounds
     "success_bg":        "rgba(34, 197, 94, 0.18)",
     "success_fg":        "#86EFAC",
     "idle_bg":           "#1E293B",
@@ -141,13 +112,11 @@ DARK = {
     "danger_bg":         "rgba(242, 139, 130, 0.18)",
     "danger_fg":         "#F28B82",
 
-    # Button states
     "primary_hover":     "#A2C9FA",
     "primary_pressed":   "#B8D4FB",
     "disabled_bg":       "#3C4043",
     "disabled_fg":       "#9AA0A6",
 
-    # Chart
     "chart_grid": "#263244",
     "chart_text": "#94A3B8",
     "ring_track": "#1F3A2A",
@@ -155,7 +124,6 @@ DARK = {
 
 
 class ThemeManager(QObject):
-    """Manages light/dark/system theme, emits signal on change."""
 
     theme_changed = Signal(str)
 
@@ -201,7 +169,6 @@ class ThemeManager(QObject):
 
 
 def build_stylesheet(c: dict[str, str]) -> str:
-    """Build M3 stylesheet using Qt property selectors."""
 
     return f"""
     /* ═══════════ FOUNDATION ═══════════ */

@@ -1,8 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Import 分组；布局代码无需修改。
-/// Import Media view with drag-and-drop support.
 struct ImportMediaView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
@@ -14,7 +12,6 @@ struct ImportMediaView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
                 Text("import.title")
                     .font(FallGuardFont.title)
@@ -37,17 +34,13 @@ struct ImportMediaView: View {
         .background(FallGuardBackground(scheme: colorScheme))
     }
 
-    // MARK: Setup
-
     private var importSetupView: some View {
         VStack(spacing: FallGuardSpacing.s24) {
             Spacer()
 
-            // Drop zone
             dropZone
                 .padding(.horizontal, FallGuardSpacing.s40)
 
-            // Selected files
             if !selectedPaths.isEmpty {
                 VStack(alignment: .leading, spacing: FallGuardSpacing.s8) {
                     HStack {
@@ -86,7 +79,6 @@ struct ImportMediaView: View {
                 .padding(.horizontal, FallGuardSpacing.s40)
             }
 
-            // Options
             HStack(spacing: FallGuardSpacing.s20) {
                 Picker(selection: $sensitivity) {
                     ForEach(sensitivities, id: \.self) { s in
@@ -103,7 +95,6 @@ struct ImportMediaView: View {
             }
             .padding(.horizontal, FallGuardSpacing.s40)
 
-            // Import button
             Button(action: startImport) {
                 Label("import.start", systemImage: "play.fill")
                     .font(FallGuardFont.headline)
@@ -123,8 +114,6 @@ struct ImportMediaView: View {
             Spacer()
         }
     }
-
-    // MARK: Drop Zone
 
     private var dropZone: some View {
         VStack(spacing: FallGuardSpacing.s12) {
@@ -187,8 +176,6 @@ struct ImportMediaView: View {
         }
     }
 
-    // MARK: Progress
-
     private func importProgressView(job: ImportJobDTO) -> some View {
         VStack(spacing: FallGuardSpacing.s24) {
             Spacer()
@@ -230,7 +217,7 @@ struct ImportMediaView: View {
                     .font(FallGuardFont.title2)
                     .foregroundColor(FallGuardColors.textPrimary(for: colorScheme))
                 if let err = job.error {
-                    Text(err.messageKey)
+                    Text(NSLocalizedString(err.messageKey, comment: ""))
                         .font(FallGuardFont.body)
                         .foregroundColor(FallGuardColors.textSecondary(for: colorScheme))
                 }
@@ -249,7 +236,11 @@ struct ImportMediaView: View {
                     HStack {
                         Text("\(Int(job.progress * 100))%")
                         Spacer()
-                        Text("Frame \(job.currentFrame) / \(job.totalFrames)")
+                        Text(String(
+                            format: NSLocalizedString("import.frame_progress", comment: ""),
+                            job.currentFrame,
+                            job.totalFrames
+                        ))
                     }
                     .font(FallGuardFont.caption)
                     .foregroundColor(FallGuardColors.muted(for: colorScheme))
@@ -268,8 +259,6 @@ struct ImportMediaView: View {
             Spacer()
         }
     }
-
-    // MARK: Actions
 
     private func selectFiles() {
         let panel = NSOpenPanel()

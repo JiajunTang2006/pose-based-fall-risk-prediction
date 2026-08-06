@@ -4,10 +4,14 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .venv/
+.venv-figures/
 venv/
 tmp/
 .vscode/
 output/
+figures/.matplotlib-cache/
+figures/python-environment-install.log
+figures/python-environment.json
 outputs/*.mp4
 outputs/*.avi
 outputs/*.csv

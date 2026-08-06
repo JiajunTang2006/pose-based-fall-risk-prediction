@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import csv
@@ -32,7 +30,6 @@ DEFAULT_STRIDE = 3
 @dataclass(frozen=True)
 class WindowDataset:
 
-
     X: list[list[float]]
     y: list[str]
     groups: list[str]
@@ -41,7 +38,6 @@ class WindowDataset:
 
 @dataclass(frozen=True)
 class LabelInterval:
-
 
     video: str
     start_frame: int
@@ -62,7 +58,6 @@ def build_window_dataset(
     baseline_frames: int = 15,
     use_upper_body_features: bool = False,
 ) -> WindowDataset:
-
     if window_size <= 0:
         raise ValueError("window_size must be positive")
     if stride <= 0:
@@ -91,7 +86,6 @@ def build_window_dataset(
     groups: list[str] = []
 
     for csv_path in sorted(Path(path) for path in csv_paths):
-
         rows = load_feature_rows(csv_path)
         if use_standing_calibration or use_upper_body_features:
             rows, _baseline = calibrate_feature_rows(rows, baseline_frames=baseline_frames)
@@ -101,13 +95,10 @@ def build_window_dataset(
         video_key = _video_key(csv_path)
         file_label = infer_label_from_filename(csv_path)
 
-
         for start in range(0, len(rows) - window_size + 1, stride):
             window_rows = rows[start : start + window_size]
 
-
             end_frame = _row_frame(window_rows[-1], start + window_size - 1)
-            # The final frame is the current state predicted from the preceding window.
             label = _label_for_window(
                 csv_path=csv_path,
                 video_key=video_key,
@@ -149,13 +140,11 @@ def build_window_dataset(
 
 
 def load_feature_rows(csv_path: str | Path) -> list[dict[str, str]]:
-
     with Path(csv_path).open("r", newline="", encoding="utf-8") as file:
         return list(csv.DictReader(file))
 
 
 def infer_label_from_filename(path: str | Path) -> str | None:
-
     stem = Path(path).stem.lower()
     if stem.startswith("fall") or "_fall" in stem or "-fall" in stem:
         return "Fall"
@@ -167,7 +156,6 @@ def infer_label_from_filename(path: str | Path) -> str | None:
 def load_label_intervals(
     annotations_path: str | Path | Sequence[str | Path] | None,
 ) -> dict[str, list[LabelInterval]]:
-
     if annotations_path is None:
         return {}
 
@@ -208,16 +196,13 @@ def _label_for_window(
     label_mode: str,
     intervals: Mapping[str, Sequence[LabelInterval]],
 ) -> str | None:
-
     if label_mode == "filename":
         return file_label
-
 
     for key in _annotation_keys(csv_path, video_key):
         for interval in intervals.get(key, ()):
             if interval.start_frame <= end_frame <= interval.end_frame:
                 return interval.label
-
 
     return "Normal" if file_label == "Normal" else None
 
@@ -228,12 +213,6 @@ def boundary_distance_for_frame(
     frame: int,
     intervals: Mapping[str, Sequence[LabelInterval]],
 ) -> int | None:
-    """Return distance in source frames to the nearest true label transition.
-
-    The first interval is not a transition.  A boundary is the first frame of
-    a new interval whose label differs from the preceding interval.  ADL files
-    without interval annotations therefore return ``None``.
-    """
     path = Path(csv_path)
     matched: Sequence[LabelInterval] = ()
     for key in _annotation_keys(path, video_key):
@@ -254,7 +233,6 @@ def boundary_distance_for_frame(
 
 
 def _annotation_keys(csv_path: Path, video_key: str) -> tuple[str, ...]:
-
     stem = _normalize_video_name(csv_path.stem)
     name = _normalize_video_name(csv_path.name)
     parent_name = _normalize_video_name(f"{csv_path.parent.name}/{csv_path.stem}")
@@ -262,7 +240,6 @@ def _annotation_keys(csv_path: Path, video_key: str) -> tuple[str, ...]:
 
 
 def _video_key(path: str | Path) -> str:
-
     stem = _normalize_video_name(Path(path).stem)
     upfall_match = re.match(r"^(subject\d+activity\d+trial\d+)camera\d+$", stem)
     if upfall_match:
@@ -271,7 +248,6 @@ def _video_key(path: str | Path) -> str:
 
 
 def _normalize_video_name(value: str) -> str:
-
     value = value.replace("\\", "/").strip().lower()
     suffixes = (".csv", ".mp4", ".avi", ".mov", ".mkv")
     for suffix in suffixes:
@@ -282,7 +258,6 @@ def _normalize_video_name(value: str) -> str:
 
 
 def _row_frame(row: Mapping[str, str], fallback: int) -> int:
-
     try:
         return int(float(row.get("frame", fallback)))
     except (TypeError, ValueError):

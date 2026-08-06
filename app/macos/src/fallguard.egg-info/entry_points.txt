@@ -1,2 +1,0 @@
-[console_scripts]
-fallguard = fall_prediction_desktop.__main__:main

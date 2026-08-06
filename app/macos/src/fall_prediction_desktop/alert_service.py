@@ -1,10 +1,3 @@
-"""Local alert delivery for risk-state transitions.
-
-macOS desktop notifications are intentionally not implemented yet.  A future
-notification adapter can be added beside ``SoundAlertService`` without changing
-the prediction or event-persistence layers.
-"""
-
 from __future__ import annotations
 
 import subprocess
@@ -18,7 +11,6 @@ from .risk_state_machine import RiskState, StateChangeEvent
 
 
 class SoundAlertService:
-    """Play a bounded local sound when monitoring enters an elevated state."""
 
     def __init__(
         self,
@@ -35,7 +27,6 @@ class SoundAlertService:
         self._lock = threading.Lock()
 
     def on_state_change(self, event: StateChangeEvent) -> bool:
-        """Deliver an escalation sound; return whether delivery was scheduled."""
         if not self.enabled or not event.is_escalation:
             return False
         if event.to_state not in {RiskState.WARNING, RiskState.FALL}:
@@ -63,7 +54,6 @@ class SoundAlertService:
         try:
             self._player(state)
         except (OSError, subprocess.SubprocessError):
-            # Alert delivery must never interrupt frame processing.
             pass
 
     @staticmethod

@@ -1,15 +1,3 @@
-"""
-Evaluate the current trained model on exported feature CSVs.
-
-This is a lightweight post-training sanity check. It does not re-run pose
-estimation; it reuses feature CSVs and simulates the runtime ML path:
-
-    model probabilities -> optional HMM -> alert layer -> TemporalSequenceGate
-
-The report includes optimistic all-data window metrics plus sequence-level
-checks for ADL false Fall alarms and Fall-video detection.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -280,7 +268,6 @@ def prefall_region(
     intervals: dict,
     boundary_ratio: float,
 ) -> str | None:
-    """Classify a Pre-fall window as early/core/late using the report-style boundary split."""
     boundary = max(0.0, min(0.49, float(boundary_ratio)))
     for key in _annotation_keys(csv_path, video_key):
         for interval in intervals.get(key, ()):

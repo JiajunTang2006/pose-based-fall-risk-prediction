@@ -1,11 +1,3 @@
-"""
-Serialization helpers — convert internal Python objects to stable API contracts.
-
-IMPORTANT: Never serialise internal objects (``DashboardSnapshot``, ``Prediction``,
-``UserProfile``, etc.) directly.  Always go through the functions in this module
-so that Swift's DTO contracts remain stable even when internal field names change.
-"""
-
 from __future__ import annotations
 
 import time
@@ -26,8 +18,6 @@ from .contracts import (
 )
 
 
-# ── sequence counter ────────────────────────────────────────────────
-
 _seq: int = 0
 
 
@@ -42,26 +32,16 @@ def reset_sequence(value: int = 0) -> None:
     _seq = value
 
 
-# ── value guards ────────────────────────────────────────────────────
-
-
 def clamp01(value: float) -> float:
-    """Clamp *value* to [0.0, 1.0]."""
     return max(0.0, min(1.0, float(value)))
 
 
-# ── state helpers ───────────────────────────────────────────────────
-
-
 def _model_state_from_internal(raw_state: str | None) -> str:
-    """Map an internal state label to the contract model state enum."""
     if raw_state is None:
         return "Unknown"
     state = str(raw_state).strip()
-    # Already a valid contract state?
     if state in {"Normal", "Pre-fall", "Fall", "Unknown"}:
         return state
-    # Map from various internal labels
     mapping: dict[str, str] = {
         "Idle": "Normal",
         "Starting": "Normal",
@@ -72,9 +52,6 @@ def _model_state_from_internal(raw_state: str | None) -> str:
         "Error": "Unknown",
         "Setup Needed": "Unknown",
         "Person Not Visible": "Unknown",
-        # The business FSM uses Recovery briefly after a confirmed Fall.
-        # The public contract has no Recovery enum, so expose it as Normal
-        # instead of incorrectly falling through to Unknown.
         "Recovery": "Normal",
     }
     return mapping.get(state, "Unknown")
@@ -87,9 +64,6 @@ def _business_state_from_model(model_state: str) -> str:
         "Fall": "danger",
         "Unknown": "unknown",
     }.get(model_state, "unknown")
-
-
-# ── main serialisation functions ────────────────────────────────────
 
 
 def serialize_health(
@@ -116,10 +90,6 @@ def serialize_status(
     *,
     schema_version: int = 1,
 ) -> dict[str, Any]:
-    """Convert a CameraMonitor/MonitorSnapshot dict to a stable StatusResponse.
-
-    *snapshot* is the dict returned by ``CameraMonitor.snapshot()``.
-    """
     risk_percent = int(snapshot.get("riskPercent", 0))
     confidence_percent = int(snapshot.get("confidencePercent", 0))
     monitoring = bool(snapshot.get("running", False))
@@ -128,9 +98,6 @@ def serialize_status(
 
     risk_score = clamp01(risk_percent / 100.0) if monitoring else 0.0
     confidence_score = clamp01(confidence_percent / 100.0) if monitoring else 0.0
-    # A temporally confirmed state must not be paired with a contradictory
-    # low percentage in the UI. These floors match the business FSM entry
-    # thresholds; the raw score is still retained internally for analytics.
     if monitoring:
         if model_state == "Fall":
             risk_score = max(risk_score, 0.72)
@@ -159,6 +126,11 @@ def serialize_status(
         timestamp_ms=int(time.time() * 1000),
         monitoring=monitoring,
         loading=bool(snapshot.get("loading", False)),
+        active_event_id=(
+            str(snapshot["activeEventId"])
+            if snapshot.get("activeEventId")
+            else None
+        ),
         prediction=prediction,
         performance=performance,
         error=error_dto,
@@ -181,7 +153,6 @@ def serialize_monitor_command(
 
 
 def serialize_import_job(snapshot: dict[str, object]) -> dict[str, Any]:
-    """Convert a MediaImportProcessor snapshot dict to ImportJobResponse."""
     return ImportJobResponse(
         id=str(snapshot.get("id", "")),
         state=str(snapshot.get("state", "Idle")).lower(),
@@ -194,7 +165,6 @@ def serialize_import_job(snapshot: dict[str, object]) -> dict[str, Any]:
 
 
 def serialize_settings(settings_obj: Any) -> dict[str, Any]:
-    """Convert AppSettings to SettingsDTO."""
     thresholds = getattr(settings_obj, "thresholds", None)
     if callable(thresholds):
         thresholds = thresholds()
@@ -210,7 +180,6 @@ def serialize_settings(settings_obj: Any) -> dict[str, Any]:
 
 
 def serialize_profile(profile: Any) -> dict[str, Any]:
-    """Convert a UserProfile (or dict row) to ProfileDTO."""
     if hasattr(profile, "to_dict"):
         d = profile.to_dict()  # type: ignore[union-attr]
     elif isinstance(profile, dict):
@@ -227,7 +196,6 @@ def serialize_profile(profile: Any) -> dict[str, Any]:
 
 
 def serialize_event(event_row: dict[str, Any]) -> dict[str, Any]:
-    """Convert a database event row to EventDTO."""
     return EventDTO(
         id=str(event_row.get("id", "")),
         event_type=str(event_row.get("event_type", "")),
@@ -236,6 +204,23 @@ def serialize_event(event_row: dict[str, Any]) -> dict[str, Any]:
         started_at=str(event_row.get("started_at", "")),
         ended_at=event_row.get("ended_at"),
         session_id=event_row.get("session_id"),
+        avg_risk=float(event_row.get("avg_risk", 0.0)),
+        duration_seconds=float(event_row.get("duration_seconds", 0.0)),
+        thumbnail_path=event_row.get("thumbnail_path"),
+        video_clip_path=event_row.get("video_clip_path"),
+        clip_fps=(
+            float(event_row["clip_fps"])
+            if event_row.get("clip_fps") is not None else None
+        ),
+        clip_duration_seconds=(
+            float(event_row["clip_duration_seconds"])
+            if event_row.get("clip_duration_seconds") is not None else None
+        ),
+        user_feedback=event_row.get("user_feedback"),
+        annotation_label=event_row.get("annotation_label"),
+        prefall_start_seconds=event_row.get("prefall_start_seconds"),
+        fall_start_seconds=event_row.get("fall_start_seconds"),
+        notes=event_row.get("notes"),
     ).to_dict()
 
 
@@ -251,11 +236,7 @@ def serialize_paginated(
     ).to_dict()
 
 
-# ── internal helpers ────────────────────────────────────────────────
-
-
 def _serialize_error(error_raw: Any) -> ServiceErrorDTO | None:
-    """Convert an error string or ServiceError to a ServiceErrorDTO."""
     if error_raw is None:
         return None
     if hasattr(error_raw, "to_dict"):

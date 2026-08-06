@@ -1,11 +1,3 @@
-"""Camera/person calibration and partial-pose robustness utilities.
-
-The current classifier consumes image-coordinate features.  This module builds
-an alternative, artifact-gated representation whose values are relative to a
-short standing calibration period.  It also carries explicit validity masks so
-zero never ambiguously means both "missing" and a real measurement.
-"""
-
 from __future__ import annotations
 
 from copy import deepcopy
@@ -45,12 +37,7 @@ UPPER_BODY_ACCEL_FEATURE_COLUMNS = UPPER_BODY_ML_FEATURE_COLUMNS + (
 
 
 class StandingFeatureCalibrator:
-    """Map image-coordinate pose features into a standing-relative space.
-
-    The transform is fitted once and then frozen.  It must never re-orient each
-    frame independently, because doing so would erase the tilt produced by a
-    real fall.
-    """
+    """Normalize motion features against a reliable standing baseline."""
 
     def __init__(
         self,
@@ -88,7 +75,6 @@ class StandingFeatureCalibrator:
         self._previous_timestamp = None
 
     def fit(self, rows: Sequence[Mapping[str, object]]) -> bool:
-        """Fit from the first reliable standing rows in a sequence."""
         self.reset()
         for row in rows:
             if self._is_calibration_sample(row):
@@ -99,7 +85,6 @@ class StandingFeatureCalibrator:
         return False
 
     def update_and_transform(self, row: Mapping[str, object]) -> dict[str, float] | None:
-        """Streaming calibration. Return None until enough standing rows exist."""
         if not self.ready:
             if not self._is_calibration_sample(row):
                 return None
@@ -268,7 +253,6 @@ def calibrate_feature_rows(
     baseline_frames: int = 15,
     min_visibility: float = 0.35,
 ) -> tuple[list[dict[str, float]], dict[str, float] | None]:
-    """Fit once, then transform a complete offline video sequence."""
     calibrator = StandingFeatureCalibrator(baseline_frames, min_visibility)
     if not calibrator.fit(rows):
         return [], None
@@ -280,7 +264,6 @@ def apply_partial_pose_dropout(
     window_rows: Sequence[Mapping[str, object]],
     pattern: str,
 ) -> list[dict[str, float]]:
-    """Create deterministic structured-occlusion training examples."""
     rows = [deepcopy(dict(row)) for row in window_rows]
     if pattern == "torso":
         for row in rows:
@@ -292,7 +275,6 @@ def apply_partial_pose_dropout(
         for row in rows:
             _drop_group(row, "bbox")
     elif pattern == "temporal":
-        # A short internal occlusion, while leaving context on both sides.
         start = max(1, len(rows) // 3)
         end = min(len(rows) - 1, start + max(1, len(rows) // 4))
         for row in rows[start:end]:

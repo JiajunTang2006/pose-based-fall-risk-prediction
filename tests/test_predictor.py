@@ -1,5 +1,3 @@
-
-
 import unittest
 
 from fall_prediction.landmarks import (
@@ -18,20 +16,15 @@ from fall_prediction.predictor import FallPredictor, PredictorConfig
 
 
 def pose_from_points(shoulder_mid, hip_mid, knee_y, ankle_y, spread=0.05):
-
     sx, sy = shoulder_mid
     hx, hy = hip_mid
 
-
     landmarks = [Landmark(0.5, 0.5, visibility=0.9) for _ in range(LANDMARK_COUNT)]
-
 
     landmarks[LEFT_SHOULDER] = Landmark(sx - spread, sy, visibility=0.95)
     landmarks[RIGHT_SHOULDER] = Landmark(sx + spread, sy, visibility=0.95)
-
     landmarks[LEFT_HIP] = Landmark(hx - spread, hy, visibility=0.95)
     landmarks[RIGHT_HIP] = Landmark(hx + spread, hy, visibility=0.95)
-
     landmarks[LEFT_KNEE] = Landmark(hx - spread, knee_y, visibility=0.95)
     landmarks[RIGHT_KNEE] = Landmark(hx + spread, knee_y, visibility=0.95)
     landmarks[LEFT_ANKLE] = Landmark(hx - spread, ankle_y, visibility=0.95)
@@ -41,10 +34,7 @@ def pose_from_points(shoulder_mid, hip_mid, knee_y, ankle_y, spread=0.05):
 
 class FallPredictorTest(unittest.TestCase):
 
-
     def test_synthetic_fall_sequence_reaches_prefall_or_fall(self):
-
-
         predictor = FallPredictor(
             PredictorConfig(
                 baseline_frames=3,
@@ -56,11 +46,9 @@ class FallPredictorTest(unittest.TestCase):
 
         predictions = []
 
-
         for frame in range(4):
             landmarks = pose_from_points((0.50, 0.25), (0.50, 0.55), 0.75, 0.95)
             predictions.append(predictor.predict(landmarks, frame, frame / 10.0))
-
 
         falling_poses = [
             pose_from_points((0.42, 0.38), (0.56, 0.58), 0.72, 0.86, spread=0.08),
@@ -71,11 +59,8 @@ class FallPredictorTest(unittest.TestCase):
         for offset, landmarks in enumerate(falling_poses, start=4):
             predictions.append(predictor.predict(landmarks, offset, offset / 10.0))
 
-
         states = [prediction.state for prediction in predictions]
-
         self.assertTrue(any(state in {"Pre-fall", "Fall"} for state in states))
-
         self.assertGreater(predictions[-1].smoothed_risk_score, 0.45)
 
 

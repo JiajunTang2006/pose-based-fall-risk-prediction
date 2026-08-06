@@ -1,10 +1,3 @@
-"""
-DatabaseManager — singleton SQLite connection with schema init and migration.
-
-All database access goes through this module.  Frontend code MUST NOT
-execute SQL directly; use the repository classes in ``repositories/``.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -16,7 +9,7 @@ from typing import Generator
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseError(Exception):
@@ -24,32 +17,21 @@ class DatabaseError(Exception):
 
 
 class DatabaseManager:
-    """Thread-safe SQLite connection manager.
-
-    Creates the database file and runs the schema on first open.
-    Uses WAL mode for better concurrent read performance.
-    """
 
     def __init__(self, db_path: Path, schema_path: Path | None = None) -> None:
         self._db_path = db_path
         self._schema_path = schema_path
         self._local = threading.local()
-        # ``initialize()`` holds this lock while opening its first connection.
-        # Opening a connection also registers it under the same lock, so the
-        # lock must be re-entrant.  A plain Lock deadlocks before the UI is
-        # created and leaves macOS showing an app that is "running" forever.
         self._lock = threading.RLock()
         self._initialized = False
-        self._connections: list[sqlite3.Connection] = []  # tracked for close_all
+        self._connections: list[sqlite3.Connection] = []
 
-    # ── public API ──────────────────────────────────────────────────
 
     @property
     def path(self) -> Path:
         return self._db_path
 
     def initialize(self) -> None:
-        """Create the database file and run the schema (idempotent)."""
         with self._lock:
             if self._initialized:
                 return
@@ -61,6 +43,7 @@ class DatabaseManager:
                         f"FallGuard database schema was not found: {self._schema_path}"
                     )
                 conn.executescript(self._schema_path.read_text(encoding="utf-8"))
+                self._migrate(conn)
                 conn.commit()
                 self._initialized = True
                 logger.info("Database initialized: %s (v%d)", self._db_path, SCHEMA_VERSION)
@@ -73,7 +56,6 @@ class DatabaseManager:
                     self._connections.remove(conn)
 
     def get_connection(self) -> sqlite3.Connection:
-        """Return a thread-local connection.  Creates one on first access."""
         if not self._initialized:
             self.initialize()
         if not hasattr(self._local, "conn") or self._local.conn is None:
@@ -82,11 +64,6 @@ class DatabaseManager:
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
-        """Context manager with explicit BEGIN...COMMIT/ROLLBACK.
-
-        Only the work inside this block is atomic; unrelated pending
-        statements on the same connection are NOT committed.
-        """
         conn = self.get_connection()
         conn.execute("BEGIN")
         try:
@@ -97,7 +74,6 @@ class DatabaseManager:
             raise
 
     def close(self) -> None:
-        """Close the thread-local connection if open."""
         if hasattr(self._local, "conn") and self._local.conn is not None:
             conn = self._local.conn
             try:
@@ -111,7 +87,6 @@ class DatabaseManager:
                         self._connections.remove(conn)
 
     def close_all(self) -> None:
-        """Close all tracked connections (call at app shutdown)."""
         with self._lock:
             for conn in list(self._connections):
                 try:
@@ -119,10 +94,8 @@ class DatabaseManager:
                 except Exception:
                     pass
             self._connections.clear()
-            # Also clear the thread-local for the calling thread
             self.close()
 
-    # ── internal ────────────────────────────────────────────────────
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
@@ -133,15 +106,27 @@ class DatabaseManager:
             self._connections.append(conn)
         return conn
 
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        event_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(events)").fetchall()
+        }
+        additions = {
+            "annotation_label": "TEXT",
+            "prefall_start_seconds": "REAL",
+            "fall_start_seconds": "REAL",
+        }
+        for name, column_type in additions.items():
+            if name not in event_columns:
+                conn.execute(f"ALTER TABLE events ADD COLUMN {name} {column_type}")
 
-# ── Singleton access ──────────────────────────────────────────────────
 
 _db_manager: DatabaseManager | None = None
 _db_lock = threading.Lock()
 
 
 def get_database() -> DatabaseManager:
-    """Return the global DatabaseManager singleton (must call ``init_database`` first)."""
     global _db_manager
     with _db_lock:
         if _db_manager is None:
@@ -150,7 +135,6 @@ def get_database() -> DatabaseManager:
 
 
 def init_database(db_path: Path, schema_path: Path | None = None) -> DatabaseManager:
-    """Create and return the global DatabaseManager singleton (thread-safe)."""
     global _db_manager
     with _db_lock:
         if _db_manager is not None:

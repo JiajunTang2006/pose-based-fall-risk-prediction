@@ -1,5 +1,3 @@
-"""Evaluate a robust artifact under deterministic partial-pose stress patterns."""
-
 from __future__ import annotations
 
 import argparse

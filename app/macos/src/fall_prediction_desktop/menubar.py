@@ -1,19 +1,9 @@
-"""
-macOS menu bar app — FallGuard lives in the status bar.
-
-The app starts as a lightweight menu bar icon.  Monitoring runs in the
-background and status is reflected in the menu bar title.  The user can
-open a live monitor window to see the camera feed.
-"""
-
 from __future__ import annotations
 
 import threading
 
 import rumps
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from .runner import ensure_repo_on_path, find_app_root
     from .web_app import (
@@ -38,7 +28,6 @@ except ImportError:
     from fall_prediction_desktop.database.init_db import init_app_database  # type: ignore[no-redef]
 
 
-# ── status emoji ──────────────────────────────────────────────────────────
 STATUS_ICONS = {
     "Idle":       "⚪",
     "Starting":   "🔵",
@@ -55,35 +44,29 @@ class FallGuardMenuBar(rumps.App):
         super().__init__(
             name="FallGuard",
             title="⚪ FG",
-            quit_button=None,  # We add our own Quit menu item.
+            quit_button=None,
         )
 
         self.app_root = find_app_root()
         ensure_repo_on_path(self.app_root)
 
-        # Shared server state (lazily created).
         self._monitor: CameraMonitor | None = None
         self._server: FallGuardServer | None = None
         self._server_thread: threading.Thread | None = None
         self._url: str = ""
         self._port: int = 0
 
-        # Build the menu.
         self._build_menu()
 
-        # Status-update timer (fires every 1 s while monitoring).
         self._timer: rumps.Timer | None = None
 
-    # ── menu construction ──────────────────────────────────────────────
 
     def _build_menu(self) -> None:
         self.menu.clear()
 
-        # Status display (non-interactive).
         self.menu.add(rumps.MenuItem("FallGuard — Smart Safety", callback=None))
         self.menu.add(rumps.separator)
 
-        # Controls.
         self._start_btn = rumps.MenuItem("Start Monitoring", callback=self._on_start)
         self._stop_btn = rumps.MenuItem("Stop Monitoring", callback=self._on_stop)
         self._monitor_btn = rumps.MenuItem("Show Monitor", callback=self._on_show_monitor)
@@ -93,7 +76,6 @@ class FallGuardMenuBar(rumps.App):
         self.menu.add(self._monitor_btn)
         self.menu.add(rumps.separator)
 
-        # Status info.
         self._status_item = rumps.MenuItem("Status: Idle", callback=None)
         self._risk_item = rumps.MenuItem("Risk: --", callback=None)
         self._fps_item = rumps.MenuItem("FPS: --", callback=None)
@@ -102,12 +84,10 @@ class FallGuardMenuBar(rumps.App):
         self.menu.add(self._fps_item)
         self.menu.add(rumps.separator)
 
-        # Quit.
         self.menu.add(rumps.MenuItem("Quit FallGuard", callback=self._on_quit))
 
         self._update_ui_state(running=False)
 
-    # ── callbacks ──────────────────────────────────────────────────────
 
     def _on_start(self, sender: rumps.MenuItem) -> None:
         self._ensure_server()
@@ -120,7 +100,6 @@ class FallGuardMenuBar(rumps.App):
         self.title = "🔵 FG"
         self._update_ui_state(running=True)
 
-        # Poll status every second.
         if self._timer is None:
             self._timer = rumps.Timer(callback=self._poll_status, interval=1)
             self._timer.start()
@@ -137,9 +116,6 @@ class FallGuardMenuBar(rumps.App):
 
     def _on_show_monitor(self, sender: rumps.MenuItem) -> None:
         self._ensure_server()
-        # Open a native pywebview window connected to this server.
-        # Inside a PyInstaller bundle, sys.executable is the bundled app;
-        # from source we use `python -m fall_prediction_desktop --connect`.
         import subprocess, sys
         if getattr(sys, "frozen", False):
             subprocess.Popen(
@@ -159,7 +135,6 @@ class FallGuardMenuBar(rumps.App):
             self._server.shutdown()
         rumps.quit_application()
 
-    # ── status polling ─────────────────────────────────────────────────
 
     def _poll_status(self, timer: rumps.Timer) -> None:
         if self._monitor is None:
@@ -176,14 +151,11 @@ class FallGuardMenuBar(rumps.App):
         self._fps_item.title = f"FPS: {fps:.1f}"
 
     def _update_ui_state(self, running: bool) -> None:
-        # In rumps, setting callback=None dims the menu item.
         self._start_btn.set_callback(None if running else self._on_start)
         self._stop_btn.set_callback(None if not running else self._on_stop)
 
-    # ── server helpers ─────────────────────────────────────────────────
 
     def _ensure_server(self) -> None:
-        """Start the HTTP server + camera monitor (once)."""
         if self._server is not None:
             return
 
@@ -191,10 +163,8 @@ class FallGuardMenuBar(rumps.App):
         assets_root = self.app_root / "assets"
         self._port = find_free_port(8765)
         settings = load_settings(self.app_root)
-        # Initialize database layer for session/event tracking (Tasks 1-4)
         try:
             repos = init_app_database(self.app_root)
-            # Wire DB repos to the monitor
         except Exception as exc:
             print(f"Database init failed (non-fatal): {exc}")
             repos = None

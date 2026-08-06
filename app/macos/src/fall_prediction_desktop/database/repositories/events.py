@@ -1,10 +1,3 @@
-"""
-Repository for the ``events`` table — business-level fall/pre-fall detection events.
-
-Each event represents a continuous risk episode (not a single frame).
-The state machine is responsible for creating, updating, and closing events.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -14,7 +7,6 @@ from ..database import DatabaseManager
 
 
 class EventsRepository:
-    """Manage the lifecycle of fall/pre-fall detection events."""
 
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
@@ -36,12 +28,11 @@ class EventsRepository:
 
     def get(self, event_id: str) -> dict | None:
         row = self._db.get_connection().execute(
-            "SELECT * FROM events WHERE id = ?", (event_id,)
+            f"{self._event_select()} WHERE e.id = ?", (event_id,)
         ).fetchone()
         return dict(row) if row else None
 
     def get_open_for_session(self, session_id: str) -> dict | None:
-        """Return the currently-open event for a session, if any."""
         row = self._db.get_connection().execute(
             "SELECT * FROM events WHERE session_id = ? AND status = 'open' "
             "ORDER BY started_at DESC LIMIT 1",
@@ -57,7 +48,6 @@ class EventsRepository:
         self._db.get_connection().commit()
 
     def update_type(self, event_id: str, event_type: str) -> None:
-        """Update the event type (e.g. pre-fall → fall upgrade)."""
         self._db.get_connection().execute(
             "UPDATE events SET event_type = ? WHERE id = ?",
             (event_type, event_id),
@@ -98,11 +88,35 @@ class EventsRepository:
         )
         self._db.get_connection().commit()
 
-    def set_feedback(self, event_id: str, feedback: str, notes: str = "") -> dict | None:
-        self._db.get_connection().execute(
-            "UPDATE events SET user_feedback = ?, notes = ?, status = 'reviewed' WHERE id = ?",
-            (feedback, notes, event_id),
-        )
+    def set_feedback(
+        self,
+        event_id: str,
+        feedback: str,
+        notes: str = "",
+        annotation_label: str | None = None,
+        prefall_start_seconds: float | None = None,
+        fall_start_seconds: float | None = None,
+    ) -> dict | None:
+        if annotation_label is None:
+            self._db.get_connection().execute(
+                "UPDATE events SET user_feedback = ?, notes = ?, "
+                "status = 'reviewed' WHERE id = ?",
+                (feedback, notes, event_id),
+            )
+        else:
+            self._db.get_connection().execute(
+                "UPDATE events SET user_feedback = ?, annotation_label = ?, "
+                "prefall_start_seconds = ?, fall_start_seconds = ?, notes = ?, "
+                "status = 'reviewed' WHERE id = ?",
+                (
+                    feedback,
+                    annotation_label,
+                    prefall_start_seconds,
+                    fall_start_seconds,
+                    notes,
+                    event_id,
+                ),
+            )
         self._db.get_connection().commit()
         return self.get(event_id)
 
@@ -115,9 +129,18 @@ class EventsRepository:
 
     def list_recent(self, limit: int = 12) -> list[dict]:
         rows = self._db.get_connection().execute(
-            "SELECT * FROM events ORDER BY started_at DESC LIMIT ?", (limit,)
+            f"{self._event_select()} ORDER BY e.started_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def list_annotated_for_export(self) -> list[dict]:
+        rows = self._db.get_connection().execute(
+            f"{self._event_select()} "
+            "WHERE e.annotation_label IN ('Pre-fall', 'Fall') "
+            "AND e.video_clip_path IS NOT NULL "
+            "ORDER BY e.started_at, e.id"
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def count_for_session(self, session_id: str) -> int:
         row = self._db.get_connection().execute(
@@ -133,6 +156,18 @@ class EventsRepository:
         return cur.rowcount > 0
 
     def delete_all(self) -> None:
-        """Clear all events (for 'Clear History')."""
         self._db.get_connection().execute("DELETE FROM events")
         self._db.get_connection().commit()
+
+    @staticmethod
+    def _event_select() -> str:
+        return (
+            "SELECT e.*, "
+            "(SELECT m.fps FROM media_files m "
+            " WHERE m.event_id = e.id AND m.media_type = 'event_clip' "
+            " ORDER BY m.created_at DESC LIMIT 1) AS clip_fps, "
+            "(SELECT m.duration_seconds FROM media_files m "
+            " WHERE m.event_id = e.id AND m.media_type = 'event_clip' "
+            " ORDER BY m.created_at DESC LIMIT 1) AS clip_duration_seconds "
+            "FROM events e"
+        )

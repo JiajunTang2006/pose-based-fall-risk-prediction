@@ -1,5 +1,3 @@
-"""Evaluate the cooperative tree + fusion decision layer on saved CV folds."""
-
 from __future__ import annotations
 
 import argparse
@@ -331,7 +329,6 @@ def apply_static_lying_filter_by_sequence(
     sequences: Sequence[str],
     feature_columns: Sequence[str],
 ) -> tuple[list[str], list[str], list[str], dict[str, int]]:
-    """Apply the runtime static-lying rule independently to each video."""
     lengths = {
         len(confirmed_states),
         len(alert_states),

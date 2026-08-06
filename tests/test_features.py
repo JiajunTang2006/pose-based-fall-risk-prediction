@@ -1,5 +1,3 @@
-
-
 import unittest
 
 from fall_prediction.features import FeatureExtractor
@@ -27,10 +25,7 @@ def make_landmarks(
     left_ankle=(0.46, 0.95),
     right_ankle=(0.54, 0.95),
 ):
-
-
     landmarks = [Landmark(0.5, 0.5, visibility=0.9) for _ in range(LANDMARK_COUNT)]
-
 
     points = {
         LEFT_SHOULDER: left_shoulder,
@@ -49,9 +44,7 @@ def make_landmarks(
 
 class FeatureExtractorTest(unittest.TestCase):
 
-
     def test_standing_torso_angle_is_close_to_vertical(self):
-
         extractor = FeatureExtractor()
         features = extractor.extract(make_landmarks(), frame_index=0, timestamp=0.0)
 
@@ -60,11 +53,8 @@ class FeatureExtractorTest(unittest.TestCase):
         self.assertGreater(features.visibility_mean, 0.9)
 
     def test_downward_motion_has_positive_vertical_velocity(self):
-
         extractor = FeatureExtractor()
-
         extractor.extract(make_landmarks(), frame_index=0, timestamp=0.0)
-
         lower_pose = make_landmarks(
             left_shoulder=(0.45, 0.35),
             right_shoulder=(0.55, 0.35),
@@ -80,9 +70,7 @@ class FeatureExtractorTest(unittest.TestCase):
         self.assertGreater(features.vertical_velocity, 0.0)
 
     def test_tilted_pose_has_large_torso_angle(self):
-
         extractor = FeatureExtractor()
-
         tilted = make_landmarks(
             left_shoulder=(0.24, 0.36),
             right_shoulder=(0.34, 0.36),

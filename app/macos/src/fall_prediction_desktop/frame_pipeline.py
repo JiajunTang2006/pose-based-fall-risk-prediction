@@ -1,5 +1,3 @@
-"""Shared business-state processing for camera and imported media frames."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,7 +26,7 @@ class ProcessedFrameState:
 
 
 class FrameBusinessProcessor:
-    """Apply the same FSM, event, and sampling rules to every frame source."""
+    """Convert frame predictions into persisted samples, events, and state changes."""
 
     def __init__(
         self,
@@ -113,7 +111,6 @@ class FrameBusinessProcessor:
                 if (frame_index + 1) % (self._sample_interval * 10) == 0:
                     self._repos.samples.commit()
             except Exception:
-                # Persistence must not stop live prediction or media processing.
                 pass
 
         return ProcessedFrameState(

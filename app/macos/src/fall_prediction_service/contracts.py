@@ -1,33 +1,22 @@
-"""
-Stable contract types for the ``/api/v1`` service layer.
-
-These DTOs define the exact JSON shapes that Swift expects.  Internal Python
-objects (``Prediction``, ``DashboardSnapshot``, etc.) are never serialised
-directly — they are mapped through the functions in ``serialization.py``.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-# ── enum sets ───────────────────────────────────────────────────────
 
 MODEL_STATES = {"Normal", "Pre-fall", "Fall", "Unknown"}
 BUSINESS_STATES = {"safe", "warning", "danger", "unknown"}
 SERVICE_HEALTH_STATES = {"starting", "ready", "degraded"}
 
 
-# ── API DTOs ────────────────────────────────────────────────────────
-
 @dataclass
 class PredictionDTO:
-    state: str           # "Normal" | "Pre-fall" | "Fall" | "Unknown"
-    alert_state: str     # same as state for v1
-    business_state: str  # "safe" | "warning" | "danger" | "unknown"
-    risk_score: float    # 0.0–1.0
-    visibility: float    # 0.0–1.0
-    confidence: float    # 0.0–1.0
+    state: str
+    alert_state: str
+    business_state: str
+    risk_score: float
+    visibility: float
+    confidence: float
     system_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -76,6 +65,7 @@ class StatusResponse:
     timestamp_ms: int = 0
     monitoring: bool = False
     loading: bool = False
+    active_event_id: str | None = None
     prediction: PredictionDTO | None = None
     performance: PerformanceDTO | None = None
     error: ServiceErrorDTO | None = None
@@ -90,6 +80,8 @@ class StatusResponse:
         }
         if self.prediction is not None:
             result["prediction"] = self.prediction.to_dict()
+        if self.active_event_id is not None:
+            result["active_event_id"] = self.active_event_id
         if self.performance is not None:
             result["performance"] = self.performance.to_dict()
         if self.error is not None:
@@ -99,7 +91,7 @@ class StatusResponse:
 
 @dataclass
 class HealthResponse:
-    status: str  # "starting" | "ready" | "degraded"
+    status: str
     version: str
     api_version: str
     models: dict[str, bool] = field(default_factory=dict)
@@ -136,7 +128,7 @@ class MonitorCommandResponse:
 @dataclass
 class ImportJobResponse:
     id: str
-    state: str  # "running" | "complete" | "error"
+    state: str
     progress: float = 0.0
     current_frame: int = 0
     total_frames: int = 0
@@ -203,6 +195,17 @@ class EventDTO:
     started_at: str
     ended_at: str | None = None
     session_id: str | None = None
+    avg_risk: float = 0.0
+    duration_seconds: float = 0.0
+    thumbnail_path: str | None = None
+    video_clip_path: str | None = None
+    clip_fps: float | None = None
+    clip_duration_seconds: float | None = None
+    user_feedback: str | None = None
+    annotation_label: str | None = None
+    prefall_start_seconds: float | None = None
+    fall_start_seconds: float | None = None
+    notes: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -216,6 +219,26 @@ class EventDTO:
             result["ended_at"] = self.ended_at
         if self.session_id is not None:
             result["session_id"] = self.session_id
+        result["avg_risk"] = self.avg_risk
+        result["duration_seconds"] = self.duration_seconds
+        if self.thumbnail_path is not None:
+            result["thumbnail_path"] = self.thumbnail_path
+        if self.video_clip_path is not None:
+            result["video_clip_path"] = self.video_clip_path
+        if self.clip_fps is not None:
+            result["clip_fps"] = self.clip_fps
+        if self.clip_duration_seconds is not None:
+            result["clip_duration_seconds"] = self.clip_duration_seconds
+        if self.user_feedback is not None:
+            result["user_feedback"] = self.user_feedback
+        if self.annotation_label is not None:
+            result["annotation_label"] = self.annotation_label
+        if self.prefall_start_seconds is not None:
+            result["prefall_start_seconds"] = self.prefall_start_seconds
+        if self.fall_start_seconds is not None:
+            result["fall_start_seconds"] = self.fall_start_seconds
+        if self.notes is not None:
+            result["notes"] = self.notes
         return result
 
 

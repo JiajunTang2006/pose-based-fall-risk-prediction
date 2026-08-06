@@ -1,5 +1,3 @@
-
-
 import unittest
 
 from fall_prediction.landmarks import (
@@ -17,10 +15,10 @@ from fall_prediction.pose import coco17_to_mediapipe_landmarks, visible_landmark
 class YOLOPoseMappingTest(unittest.TestCase):
     def test_coco17_keypoints_are_mapped_to_mediapipe33_slots(self):
         xy = [[0.0, 0.0] for _ in range(17)]
-        xy[5] = [50.0, 100.0]    # COCO left shoulder
-        xy[6] = [150.0, 100.0]   # COCO right shoulder
-        xy[11] = [60.0, 200.0]   # COCO left hip
-        xy[12] = [140.0, 200.0]  # COCO right hip
+        xy[5] = [50.0, 100.0]
+        xy[6] = [150.0, 100.0]
+        xy[11] = [60.0, 200.0]
+        xy[12] = [140.0, 200.0]
         conf = [0.0 for _ in range(17)]
         conf[5] = 0.91
         conf[6] = 0.92

@@ -1,9 +1,3 @@
-"""
-Repository for the ``monitoring_sessions`` table.
-
-A session spans one Start→Stop cycle (camera) or one media import job.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -13,7 +7,6 @@ from ..database import DatabaseManager
 
 
 class SessionsRepository:
-    """Manage monitoring session lifecycle."""
 
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
@@ -48,7 +41,6 @@ class SessionsRepository:
         return dict(row) if row else None
 
     def recover_interrupted(self) -> int:
-        """Mark sessions left running by an earlier process as errors."""
         now = datetime.now(timezone.utc).isoformat()
         cur = self._db.get_connection().execute(
             "UPDATE monitoring_sessions "

@@ -1,11 +1,7 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
-// macOS 顶部系统菜单文案：Resources/*/Localizable.strings 中的 Menu 分组。
-/// Main entry point for the FallGuard SwiftUI application.
-///
-/// The app uses a single ``AppStore`` as the source of truth, which is
-/// passed through the view hierarchy via ``.environmentObject()``.
 @main
 struct FallGuardApp: App {
 
@@ -15,7 +11,6 @@ struct FallGuardApp: App {
     @StateObject private var languageManager = LanguageManager()
 
     init() {
-        // Check for dev-mode env vars
         let devPortStr = ProcessInfo.processInfo.environment["FALLGUARD_DEV_PORT"]
         let devPort = devPortStr.flatMap(Int.init)
         let devToken = ProcessInfo.processInfo.environment["FALLGUARD_DEV_TOKEN"]
@@ -40,14 +35,12 @@ struct FallGuardApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            // Replace default About with our own
             CommandGroup(replacing: .appInfo) {
                 Button(NSLocalizedString("menu.about", comment: "")) {
                     NSApplication.shared.orderFrontStandardAboutPanel(nil)
                 }
             }
 
-            // App-level commands
             CommandGroup(after: .newItem) {
                 Divider()
                 Button(NSLocalizedString("menu.start_monitoring", comment: "")) {
@@ -63,11 +56,7 @@ struct FallGuardApp: App {
                 .disabled(!store.isMonitoring)
             }
 
-            // Help
             CommandGroup(replacing: .help) {
-                Button(NSLocalizedString("menu.diagnostics", comment: "")) {
-                    // Opens diagnostics
-                }
                 Button(NSLocalizedString("menu.export_logs", comment: "")) {
                     Task { await exportLogs() }
                 }
@@ -80,18 +69,44 @@ struct FallGuardApp: App {
                 .environmentObject(themeManager)
                 .environmentObject(languageManager)
                 .environment(\.locale, languageManager.locale)
+                .preferredColorScheme(themeManager.effective)
                 .frame(width: 780, height: 540)
         }
     }
 
     private func exportLogs() async {
-        // Stub: collect logs from Python stderr + app logs
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "fallguard_diagnostics.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let events = store.recentEvents.map {
+            [
+                "id": $0.id,
+                "type": $0.eventType,
+                "status": $0.status,
+                "peak_risk": $0.peakRisk,
+                "started_at": $0.startedAt,
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = [
+            "exported_at": ISO8601DateFormatter().string(from: Date()),
+            "service": store.serviceManager.state.displayText,
+            "monitoring": store.isMonitoring,
+            "fps": store.fps,
+            "camera_index": store.currentCameraIndex,
+            "recent_events": events,
+        ]
+        do {
+            let data = try JSONSerialization.data(
+                withJSONObject: payload,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try data.write(to: url, options: .atomic)
+        } catch {
+            store.connectionError = error.localizedDescription
+        }
     }
 
-    /// Make the window chrome transparent so the shared ambient gradient
-    /// (``FallGuardBackground``) shows straight through the title-bar strip.
-    /// This removes the grey seam at the top and keeps the whole window one
-    /// continuous colour, matching the content beneath the toolbar.
     private func configureWindow() {
         DispatchQueue.main.async {
             guard let window = NSApplication.shared.windows.first(where: {

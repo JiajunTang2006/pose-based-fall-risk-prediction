@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -56,7 +54,6 @@ COCO17_TO_MEDIAPIPE = {
 
 class MediaPipePoseEstimator:
 
-
     def __init__(
         self,
         model_path: str | Path | None = None,
@@ -64,8 +61,6 @@ class MediaPipePoseEstimator:
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
     ) -> None:
-
-
         try:
             import mediapipe as mp
         except ImportError as exc:
@@ -75,11 +70,9 @@ class MediaPipePoseEstimator:
                 "python -m pip install -r requirements.txt"
             ) from exc
 
-
         self._backend = "solutions" if hasattr(mp, "solutions") else "tasks"
 
         if self._backend == "solutions":
-
             self._mp_pose = mp.solutions.pose
             self._pose = self._mp_pose.Pose(
                 static_image_mode=False,
@@ -91,7 +84,6 @@ class MediaPipePoseEstimator:
             )
             return
 
-
         model = Path(model_path) if model_path else DEFAULT_MODEL_PATH
         if not model.exists():
             raise RuntimeError(
@@ -102,7 +94,6 @@ class MediaPipePoseEstimator:
                 "pose_landmarker_full/float16/latest/pose_landmarker_full.task\n"
                 "Then save it as models/pose_landmarker_full.task."
             )
-
 
         BaseOptions = mp.tasks.BaseOptions
         PoseLandmarker = mp.tasks.vision.PoseLandmarker
@@ -123,21 +114,17 @@ class MediaPipePoseEstimator:
         self._pose = PoseLandmarker.create_from_options(options)
 
     def process_bgr(self, frame, timestamp_ms: int | None = None) -> list[Landmark] | None:
-
         import cv2
-
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         if self._backend == "solutions":
-
             rgb.flags.writeable = False
             result = self._pose.process(rgb)
             if not result.pose_landmarks:
                 return None
             points = result.pose_landmarks.landmark
         else:
-
             import mediapipe as mp
 
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -145,7 +132,6 @@ class MediaPipePoseEstimator:
             if not result.pose_landmarks:
                 return None
             points = result.pose_landmarks[0]
-
 
         return [
             Landmark(
@@ -158,12 +144,10 @@ class MediaPipePoseEstimator:
         ]
 
     def close(self) -> None:
-
         self._pose.close()
 
 
 class YOLOPoseEstimator:
-
 
     def __init__(
         self,
@@ -192,7 +176,6 @@ class YOLOPoseEstimator:
         self._model = YOLO(str(model))
 
     def process_bgr(self, frame, timestamp_ms: int | None = None) -> list[Landmark] | None:
-
         results = self._model(frame, verbose=False)
         if not results:
             return None
@@ -231,7 +214,6 @@ class YOLOPoseEstimator:
         return best_index
 
     def close(self) -> None:
-
         return None
 
 
@@ -241,7 +223,6 @@ def coco17_to_mediapipe_landmarks(
     image_width: int,
     image_height: int,
 ) -> list[Landmark]:
-
     landmarks = [Landmark(0.0, 0.0, visibility=0.0) for _ in range(LANDMARK_COUNT)]
     width = max(float(image_width), 1.0)
     height = max(float(image_height), 1.0)
@@ -268,7 +249,6 @@ def visible_landmark_bbox(
     min_visibility: float = 0.2,
     padding_ratio: float = 0.08,
 ) -> tuple[int, int, int, int] | None:
-
     if not landmarks:
         return None
 
@@ -306,7 +286,6 @@ def draw_person_box(
     min_visibility: float = 0.2,
     color: tuple[int, int, int] = (0, 220, 255),
 ) -> tuple[int, int, int, int] | None:
-
     import cv2
 
     height, width = frame.shape[:2]
@@ -337,7 +316,6 @@ def draw_pose(
     line_color: tuple[int, int, int] = (80, 220, 120),
     point_ring_color: tuple[int, int, int] = (40, 120, 255),
 ) -> None:
-
     if not landmarks:
         return
 
@@ -346,23 +324,18 @@ def draw_pose(
     pose_connections = POSE_CONNECTIONS if connections is None else connections
     height, width = frame.shape[:2]
 
-
     for first_idx, second_idx in pose_connections:
         first = landmarks[first_idx]
         second = landmarks[second_idx]
-
         if first.visibility < min_visibility or second.visibility < min_visibility:
             continue
-
         first_xy = (int(first.x * width), int(first.y * height))
         second_xy = (int(second.x * width), int(second.y * height))
         cv2.line(frame, first_xy, second_xy, line_color, 2)
-
 
     for point in landmarks:
         if point.visibility < min_visibility:
             continue
         xy = (int(point.x * width), int(point.y * height))
-
         cv2.circle(frame, xy, 3, (255, 255, 255), -1)
         cv2.circle(frame, xy, 4, point_ring_color, 1)

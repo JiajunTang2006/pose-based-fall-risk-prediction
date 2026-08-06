@@ -1,5 +1,3 @@
-"""Load runtime configuration for the fall prediction pipeline."""
-
 from __future__ import annotations
 
 import json
@@ -21,14 +19,6 @@ PREDICTOR_CONFIG_KEYS = {
 
 
 def load_predictor_config(config_path: str | Path) -> PredictorConfig:
-    """
-    Load a JSON config file into PredictorConfig.
-
-    Supported sections:
-    - state_thresholds: prefall_threshold, fall_threshold, min_visibility
-    - risk_scoring: RiskConfig feature thresholds and weights
-    - temporal_smoothing: PredictorConfig temporal parameters
-    """
     data = _load_json_mapping(config_path)
 
     risk_values: dict[str, Any] = {}
@@ -48,7 +38,7 @@ def _load_json_mapping(config_path: str | Path) -> Mapping[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, Mapping):
-        raise ValueError(f"配置文件顶层必须是 JSON object: {path}")
+        raise ValueError(f"Configuration root must be a JSON object: {path}")
     return data
 
 
@@ -57,7 +47,7 @@ def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ValueError(f"配置项 {name!r} 必须是 JSON object。")
+        raise ValueError(f"Configuration entry {name!r} must be a JSON object.")
     return value
 
 

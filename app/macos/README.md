@@ -15,7 +15,7 @@ Python 子进程负责摄像头、YOLO、风险判断、SQLite 和媒体处理�
 
 ```bash
 # 1. 进入应用目录
-cd apps/macos
+cd app/macos
 
 # 2. 创建虚拟环境并安装
 python3.11 -m venv .venv
@@ -116,6 +116,19 @@ SwiftUI 应用使用 `assets/FallGuard.icns` 作为 App 图标；可用现有图
 CODE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build_native_app.sh
 ```
 
+正式发布时可使用钥匙串中预先配置的 `notarytool` profile 完成公证，并可同时生成 DMG：
+
+```bash
+CODE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE="fallguard-notary" \
+CREATE_DMG=1 \
+./build_native_app.sh
+```
+
+构建脚本会检查主程序架构；当前模型服务通常只包含 Apple Silicon
+`arm64`，如需支持 Intel Mac，必须同时为 Swift 主程序和 Python AI
+服务生成 `x86_64` 产物后再合并为 Universal 2。
+
 ## 数据存储
 
 - SQLite、设置和 Profiles：`~/Library/Application Support/FallGuard/`
@@ -125,16 +138,20 @@ CODE_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build_native
 ## 当前功能
 
 - Web Dashboard 风格界面，接近真实产品页面。
-- 默认使用 YOLO 姿态识别 + 机器学习跌倒预测模型。
+- 原生应用默认使用 YOLO Pose、robust tree classifier 和 skeleton-feature fusion model 的协作预测链路。
 - 实时显示摄像头画面、骨架点、当前状态、风险分数、事件记录和帧率。
 - Camera 与 Import Media 共用同一业务帧处理层，统一生成 Session、风险样本和事件媒体证据。
 - 确认风险状态后可以播放本地声音；菜单栏图标提供显示、开始、停止和退出操作。
-- macOS 系统通知与登录自启动目前暂不实现，设置页保留禁用的扩展位置。
-- 默认加载上半身增强模型，支持站立基准校准和部分遮挡特征。
+- 支持 macOS 系统通知、通知权限状态提示和登录后自动启动。
+- 支持站立基准校准、部分遮挡特征、融合模型提前预警和静态躺姿 ADL 后处理。
 - Fall 必须经过近期 Normal → 已确认 Pre-fall → Fall 的连续事件链。
 - 已确认 Fall 会保持到持续 Normal 恢复，避免 Fall/Normal 状态闪烁。
 
-当前模型文件：`models/yolo_tail60_prefall_accel_upperbody_classifier.joblib`。
+当前原生应用使用以下运行时模型：
+
+- `models/yolo26n-pose.pt`
+- `models/yolo_tail60_prefall_accel_robust_classifier.joblib`
+- `models/skeleton_feature_fusion_tuned.pt`
 
 仅上半身可见时可以继续判断；人体关键点完全丢失超过短暂容忍窗口时显示 Unknown。
 

@@ -1,8 +1,3 @@
-"""
-Main window — M3 Google-style AI Safety Dashboard.
-8px spacing grid. Surface layering: bg → surface → card.
-"""
-
 from __future__ import annotations
 
 import subprocess
@@ -17,8 +12,6 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QScrollArea, QFileDialog, QMessageBox, QMenu,
 )
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from .theme import ThemeManager, build_stylesheet, LIGHT, DARK
     from .i18n import get_i18n, t, t_dynamic, init_i18n
@@ -40,14 +33,10 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 
-# ── Spacing constants (8px grid) ──────────────────────────────────
 S4, S8, S12, S16, S20, S24, S32 = 4, 8, 12, 16, 20, 24, 32
 
 
-# ── Risk Chart ────────────────────────────────────────────────────
-
 class RiskChart(FigureCanvasQTAgg):
-    """M3-style risk trend chart using matplotlib."""
 
     def __init__(self, parent=None) -> None:
         self._fig = Figure(figsize=(4.0, 2.2), dpi=100, tight_layout=True)
@@ -105,8 +94,6 @@ class RiskChart(FigureCanvasQTAgg):
         self.draw_idle()
 
 
-# ── Main Window ───────────────────────────────────────────────────
-
 class MainWindow(QMainWindow):
 
     def __init__(self, monitor, media_processor, profile_manager,
@@ -145,7 +132,6 @@ class MainWindow(QMainWindow):
         self._on_theme_changed(self._theme.effective)
         self._start_timers()
 
-    # ── Build ─────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -156,12 +142,10 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(S8, S8, S8, S8)
         root.setSpacing(S8)
 
-        # Sidebar
         self._sidebar = Sidebar(self._assets_dir)
         self._sidebar.settings_button.clicked.connect(self._open_settings)
         root.addWidget(self._sidebar)
 
-        # Main panel (surface)
         self._main_panel = QFrame()
         self._main_panel.setObjectName("mainPanel")
         main_layout = QVBoxLayout(self._main_panel)
@@ -170,7 +154,6 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self._build_topbar())
 
-        # Scroll content
         scroll = QScrollArea()
         scroll.setObjectName("contentScroll")
         scroll.setWidgetResizable(True)
@@ -230,7 +213,6 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         return bar
 
-    # ── Cards ─────────────────────────────────────────────────────
 
     def _build_stat_pair(self, label: str, value: str) -> QWidget:
         box = QWidget()
@@ -521,7 +503,6 @@ class MainWindow(QMainWindow):
 
         return card
 
-    # ── Theme ─────────────────────────────────────────────────────
 
     def _on_theme_changed(self, effective: str) -> None:
         c = DARK if effective == "dark" else LIGHT
@@ -529,31 +510,25 @@ class MainWindow(QMainWindow):
 
         self.setStyleSheet(build_stylesheet(c))
 
-        # Body bg
         cw = self.findChild(QWidget, "centralWidget")
         if cw:
             cw.setStyleSheet(f"background: {c['surface_dim']};")
 
-        # Main panel
         self._main_panel.setStyleSheet(
             f"#mainPanel {{ background: {c['surface_bright']}; border-radius: 20px; border: 1px solid {c['outline_variant']}; }}"
         )
 
-        # Sidebar — clean white with right border
         self._sidebar.setStyleSheet(
             f"#sidebar {{ background: {c['surface_bright']}; border-right: 1px solid {c['outline_variant']}; border-radius: 20px; }}"
         )
         self._sidebar.update_theme_colors(c)
 
-        # Topbar
         for w in self.findChildren(QFrame, "topbar"):
             w.setStyleSheet(f"#topbar {{ background: transparent; }}")
 
-        # Content
         for w in self.findChildren(QWidget, "contentWidget"):
             w.setStyleSheet("background: transparent;")
 
-        # Card titles
         style = f"font-size: 16px; font-weight: 600; color: {c['on_surface']}; border: none;"
         for w in self.findChildren(QLabel, "cardTitle"):
             w.setStyleSheet(style)
@@ -572,14 +547,12 @@ class MainWindow(QMainWindow):
                 f"padding: 6px 12px; border: none;"
             )
 
-        # Hamburger
         self._hamburger.setStyleSheet(
             f"QPushButton {{ font-size: 20px; border: none; border-radius: 12px; "
             f"color: {c['on_surface']}; background: transparent; }}"
             f"QPushButton:hover {{ background: {c['surface_container_high']}; }}"
         )
 
-        # Buttons — direct inline styles, no property selectors
         self._start_btn.setStyleSheet(
             f"QPushButton {{ background: {c['primary']}; color: {c['on_primary']}; "
             f"border: none; border-radius: 14px; padding: 0 24px; "
@@ -618,19 +591,15 @@ class MainWindow(QMainWindow):
             f"QMenu::item:selected {{ background: {c['primary_container']}; color: {c['on_primary_container']}; }}"
         )
 
-        # Divider
         for w in self.findChildren(QFrame, "statusDivider"):
             w.setStyleSheet(f"background: {c['outline_variant']}; border: none;")
 
-        # Charts
         self._current_chart.set_theme_colors(c)
         self._trend_chart.set_theme_colors(c)
 
-        # Empty state labels
         empty_style = f"color: {c['on_surface_secondary']}; font-size: 13px; padding: 16px 0; border: none;"
         self._act_empty.setStyleSheet(empty_style)
 
-    # ── Timers ─────────────────────────────────────────────────────
 
     def _start_timers(self) -> None:
         self._status_timer = QTimer(self)
@@ -641,7 +610,6 @@ class MainWindow(QMainWindow):
         self._frame_timer.timeout.connect(self._refresh_frame)
         self._frame_timer.start(67)
 
-    # ── Status polling ────────────────────────────────────────────
 
     def _poll_status(self) -> None:
         try:
@@ -652,8 +620,6 @@ class MainWindow(QMainWindow):
                 snap["activeProfile"] = active.to_dict()
             self._update_ui(snap)
         except Exception as exc:
-            # Surface polling errors so they are visible instead of silently
-            # keeping the UI stuck at the initial placeholder text.
             import traceback
             traceback.print_exc()
             try:
@@ -675,12 +641,10 @@ class MainWindow(QMainWindow):
         media_running = bool(media_job.get("running")) if isinstance(media_job, dict) else False
         c = self._theme_colors
 
-        # Buttons
         self._start_btn.setEnabled(not running and not loading and not media_running)
         self._import_btn.setEnabled(not running and not loading and not media_running)
         self._stop_btn.setEnabled(running or loading)
 
-        # Connection pill
         self._conn_pill.set_connected(connected)
         self._conn_pill.set_text(
             t("monitoring.cameraConnected", "Camera Connected") if connected
@@ -737,7 +701,6 @@ class MainWindow(QMainWindow):
         self._confidence_status.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {status_color}; border: none;")
         self._set_status_badge(app_state, status_color)
 
-        # Show error detail when something went wrong
         if state == "Error":
             detail = snap.get("detail", "") or snap.get("error", "")
             self._detection_detail.setText(detail)
@@ -745,12 +708,10 @@ class MainWindow(QMainWindow):
         else:
             self._detection_detail.hide()
 
-        # Risk
         self._update_risk(risk, state, snap)
         self._update_time_card()
         self._update_metrics(snap, risk, app_state)
 
-        # Activities
         if isinstance(media_job, dict):
             self._track_media_activity(media_job)
         recent_events = snap.get("recentEvents")
@@ -761,7 +722,6 @@ class MainWindow(QMainWindow):
         )
         self._render_activities(activity_items + self._media_activities)
 
-        # Video
         fps = float(snap.get("fps", 0) or 0)
         resolution = str(snap.get("resolution", t("common.na", "--")))
         self._video.set_info(fps, resolution)
@@ -769,7 +729,6 @@ class MainWindow(QMainWindow):
         self._monitor_resolution_value.setText(resolution if resolution and resolution != "--" else t("common.na", "--"))
         self._monitor_sensitivity_value.setText(self._settings_sensitivity_label())
 
-        # Frame refresh
         if connected:
             self._frame_timer.start()
         elif not running and not loading:
@@ -949,7 +908,6 @@ class MainWindow(QMainWindow):
                     risk=int(item.get("risk", 0)),
                 ))
 
-    # ── Frame refresh ──────────────────────────────────────────────
 
     def _refresh_frame(self) -> None:
         frame = self._monitor.jpeg_frame()
@@ -960,7 +918,6 @@ class MainWindow(QMainWindow):
         if not pix.isNull():
             self._video.set_frame(pix)
 
-    # ── Actions ────────────────────────────────────────────────────
 
     def _start_monitoring(self) -> None:
         self._risk_history = []
@@ -1045,10 +1002,8 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _on_language_changed(self, lang: str) -> None:
-        """Refresh all static UI labels after language switch."""
         self.setWindowTitle(t("window.title", "FallGuard — Smart Safety"))
 
-        # Monitor card
         self._monitor_title.setText(t("monitor.title", "Live Monitor"))
         self._monitor_info_labels["fps"].setText(t("monitor.fpsLabel", "FPS"))
         self._monitor_info_labels["resolution"].setText(t("monitor.resolutionLabel", "Resolution"))
@@ -1060,7 +1015,6 @@ class MainWindow(QMainWindow):
         self._import_folder_action.setText(t("media.selectFolder", "Import Photo Folder"))
         self._stop_btn.setText(t("buttons.stop", "Stop"))
 
-        # Dashboard cards
         self._current_risk_title.setText(t("risk.currentRisk", "Current Risk"))
         self._risk_labels["riskLevel"].setText(t("risk.riskLevel", "Risk Level"))
         self._risk_labels["confidence"].setText(t("risk.confidence", "Confidence"))
@@ -1071,7 +1025,6 @@ class MainWindow(QMainWindow):
         self._act_title.setText(t("activity.title", "Recent Events"))
         self._act_empty.setText(t("activity.empty", "No activity yet"))
 
-        # Status card labels
         if "pose" in self._status_labels:
             self._status_labels["pose"].setText(t("status.poseDetection", "Pose Detection"))
         if "camera" in self._status_labels:
@@ -1093,14 +1046,11 @@ class MainWindow(QMainWindow):
         ]:
             self._metric_labels[key].setText(label)
 
-        # Sidebar labels
         self._sidebar.refresh_labels()
 
-        # Re-trigger theme update to fix stylesheet-based text
         self._on_theme_changed(self._theme.effective)
 
     def request_quit(self) -> None:
-        """Close the application even when minimize-to-tray is enabled."""
         self._force_quit = True
         self.close()
 

@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,17 +6,11 @@ from typing import Iterable, Sequence
 
 @dataclass(frozen=True)
 class Landmark:
-
     x: float
     y: float
     z: float = 0.0
     visibility: float = 1.0
 
-
-# ============================================================================
-
-
-# ============================================================================
 
 NOSE = 0
 LEFT_EYE_INNER = 1
@@ -54,9 +46,7 @@ RIGHT_HEEL = 30
 LEFT_FOOT_INDEX = 31
 RIGHT_FOOT_INDEX = 32
 
-
 LANDMARK_COUNT = 33
-
 
 IMPORTANT_LANDMARKS = (
     LEFT_SHOULDER,
@@ -69,24 +59,19 @@ IMPORTANT_LANDMARKS = (
     RIGHT_ANKLE,
 )
 
-
 POSE_CONNECTIONS = (
-
     (LEFT_SHOULDER, RIGHT_SHOULDER),
     (LEFT_SHOULDER, LEFT_ELBOW),
     (LEFT_ELBOW, LEFT_WRIST),
     (RIGHT_SHOULDER, RIGHT_ELBOW),
     (RIGHT_ELBOW, RIGHT_WRIST),
-
     (LEFT_SHOULDER, LEFT_HIP),
     (RIGHT_SHOULDER, RIGHT_HIP),
     (LEFT_HIP, RIGHT_HIP),
-
     (LEFT_HIP, LEFT_KNEE),
     (LEFT_KNEE, LEFT_ANKLE),
     (RIGHT_HIP, RIGHT_KNEE),
     (RIGHT_KNEE, RIGHT_ANKLE),
-
     (LEFT_ANKLE, LEFT_HEEL),
     (LEFT_HEEL, LEFT_FOOT_INDEX),
     (RIGHT_ANKLE, RIGHT_HEEL),
@@ -95,12 +80,10 @@ POSE_CONNECTIONS = (
 
 
 def has_landmarks(landmarks: Sequence[Landmark] | None) -> bool:
-
     return landmarks is not None and len(landmarks) >= LANDMARK_COUNT
 
 
 def midpoint(first: Landmark, second: Landmark) -> Landmark:
-
     return Landmark(
         x=(first.x + second.x) / 2.0,
         y=(first.y + second.y) / 2.0,
@@ -113,7 +96,6 @@ def mean_visibility(
     landmarks: Sequence[Landmark],
     indices: Iterable[int] = IMPORTANT_LANDMARKS,
 ) -> float:
-
     values = [landmarks[index].visibility for index in indices]
     return sum(values) / len(values) if values else 0.0
 
@@ -122,5 +104,4 @@ def visible_points(
     landmarks: Sequence[Landmark],
     min_visibility: float = 0.2,
 ) -> list[Landmark]:
-
     return [point for point in landmarks if point.visibility >= min_visibility]

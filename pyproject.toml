@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fall-prediction"
 version = "0.1.0"
-description = "MediaPipe-based fall detection and pre-fall prediction prototype."
+description = "Pose-based fall-risk prediction with cooperative tree and skeleton-feature fusion models."
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "opencv-python>=4.8",

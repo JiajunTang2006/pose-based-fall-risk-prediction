@@ -1,5 +1,3 @@
-"""Tests for stable contract DTOs and serialization."""
-
 import unittest
 
 from fall_prediction_service.contracts import (
@@ -161,6 +159,14 @@ class TestSerializeStatus(unittest.TestCase):
         result = serialize_status(self.snapshot)
         self.assertGreater(result["timestamp_ms"], 0)
 
+    def test_active_event_id_is_forwarded(self):
+        result = serialize_status({**self.snapshot, "activeEventId": "event-123"})
+        self.assertEqual(result["active_event_id"], "event-123")
+
+    def test_missing_active_event_id_is_omitted(self):
+        result = serialize_status(self.snapshot)
+        self.assertNotIn("active_event_id", result)
+
     def test_error_field_included_when_present(self):
         snap = {**self.snapshot, "error": "Camera not found"}
         result = serialize_status(snap)
@@ -229,11 +235,21 @@ class TestSerializeEvent(unittest.TestCase):
             "started_at": "2025-01-01T00:00:00Z",
             "ended_at": None,
             "session_id": "sess1",
+            "avg_risk": 0.61,
+            "duration_seconds": 4.2,
+            "thumbnail_path": "/tmp/thumb.jpg",
+            "video_clip_path": "/tmp/clip.mp4",
+            "user_feedback": "confirmed",
+            "notes": "Reviewed",
         }
         result = serialize_event(row)
         self.assertEqual(result["id"], "evt1")
         self.assertEqual(result["event_type"], "fall")
         self.assertAlmostEqual(result["peak_risk"], 0.92)
+        self.assertAlmostEqual(result["avg_risk"], 0.61)
+        self.assertAlmostEqual(result["duration_seconds"], 4.2)
+        self.assertEqual(result["user_feedback"], "confirmed")
+        self.assertEqual(result["video_clip_path"], "/tmp/clip.mp4")
 
 
 class TestSerializePaginated(unittest.TestCase):

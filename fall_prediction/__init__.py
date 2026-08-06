@@ -1,5 +1,3 @@
-
-
 from .config import load_predictor_config
 from .ensemble_predictor import DualModelFallPredictor
 from .features import FeatureExtractor, PoseFeatures

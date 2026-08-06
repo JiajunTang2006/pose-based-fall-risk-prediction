@@ -1,4 +1,3 @@
-# Repository classes — one per database table
 from .settings import SettingsRepository
 from .profiles import ProfilesRepository
 from .sessions import SessionsRepository

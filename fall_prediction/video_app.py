@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import argparse
@@ -90,9 +88,7 @@ def process_video(
     output_landmarks_csv: str | Path | None = None,
     use_static_lying_adl_filter: bool = True,
 ) -> None:
-
     import cv2
-
 
     capture = open_frame_source(source, image_sequence_fps=image_sequence_fps)
     writer = None
@@ -106,22 +102,18 @@ def process_video(
         if not capture.isOpened():
             raise RuntimeError(f"Could not open video source: {source}")
 
-
         fps = capture.get(cv2.CAP_PROP_FPS)
         if fps <= 1e-6:
             fps = 30.0
 
-
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
-
 
         if output_video:
             output_path = Path(output_video)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-
 
         if output_csv:
             csv_path = Path(output_csv)
@@ -136,7 +128,6 @@ def process_video(
             landmarks_file = landmarks_path.open("w", newline="", encoding="utf-8")
             landmarks_writer = csv.DictWriter(landmarks_file, fieldnames=LANDMARK_CSV_COLUMNS)
             landmarks_writer.writeheader()
-
 
         estimator = create_pose_estimator(
             pose_backend=pose_backend,
@@ -161,24 +152,18 @@ def process_video(
 
         frame_index = 0
         while True:
-
             ok, frame = capture.read()
             if not ok:
                 break
 
-
             timestamp = frame_index / fps
-
 
             landmarks = estimator.process_bgr(frame, timestamp_ms=int(timestamp * 1000))
 
-
             prediction = predictor.predict(landmarks, frame_index, timestamp)
-
 
             person_bbox = draw_person_box(frame, landmarks)
             draw_overlay(frame, prediction, person_bbox)
-
 
             if csv_writer:
                 csv_writer.writerow(prediction_to_row(prediction))
@@ -188,11 +173,9 @@ def process_video(
             if writer:
                 writer.write(frame)
 
-
             if show:
                 cv2.imshow("Fall prediction", frame)
                 key = cv2.waitKey(1) & 0xFF
-
                 if key == ord("q"):
                     break
                 if key == ord("r") and hasattr(predictor, "acknowledge_fall"):
@@ -200,8 +183,6 @@ def process_video(
 
             frame_index += 1
     finally:
-
-
         if estimator:
             estimator.close()
         capture.release()
@@ -216,12 +197,10 @@ def process_video(
 
 
 def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | None = None) -> None:
-
     import cv2
 
     display_state = prediction.alert_state or prediction.state
     advisory_state = getattr(prediction, "advisory_state", None)
-
 
     color = {
         "Normal": (80, 220, 120),
@@ -231,7 +210,6 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
     }.get(display_state, (255, 255, 255))
     if advisory_state and display_state == "Normal":
         color = (0, 200, 255) if advisory_state == "Pre-fall" else (0, 120, 255)
-
 
     lines = [f"State: {display_state}"]
     if advisory_state and advisory_state != display_state:
@@ -250,7 +228,6 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
     text_width = max(cv2.getTextSize(text, font, font_scale, thickness)[0][0] for text in lines)
     block_width = text_width + padding * 2
     block_height = line_height * len(lines) + padding
-
 
     if person_bbox is None:
         x, top = 18, 18
@@ -274,7 +251,6 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
 
 
 def prediction_to_row(prediction) -> dict[str, str | int]:
-
     features = prediction.features
     return {
         "frame": prediction.frame_index,
@@ -317,7 +293,6 @@ def prediction_to_row(prediction) -> dict[str, str | int]:
 
 
 def landmarks_to_row(landmarks, frame_index: int, timestamp: float) -> dict[str, str | int]:
-    """Serialize all raw keypoints and confidences for future mask-aware training."""
     row: dict[str, str | int] = {"frame": frame_index, "time": f"{timestamp:.4f}"}
     for index in range(LANDMARK_COUNT):
         point = landmarks[index] if landmarks is not None and index < len(landmarks) else None
@@ -335,7 +310,6 @@ def create_pose_estimator(
     model_path: str | Path | None = None,
     yolo_model_path: str | Path | None = None,
 ):
-    """Create the requested pose estimation backend."""
     if pose_backend == "mediapipe":
         return MediaPipePoseEstimator(model_path=model_path)
     if pose_backend == "yolo":
@@ -358,7 +332,6 @@ def create_predictor(
     fusion_fall_confirmation_steps: int = 3,
     use_static_lying_adl_filter: bool = True,
 ):
-    """Create the requested prediction backend."""
     if predictor_type == "rule":
         return FallPredictor(config=predictor_config)
     if predictor_type == "ensemble":
@@ -413,7 +386,6 @@ def create_predictor(
 
 class ImageSequenceCapture:
 
-
     def __init__(self, image_dir: str | Path, fps: float = 30.0) -> None:
         self.image_dir = Path(image_dir)
         self.image_paths = find_image_sequence_files(self.image_dir)
@@ -421,7 +393,6 @@ class ImageSequenceCapture:
         self.index = 0
         self.width = 0
         self.height = 0
-
 
         if self.image_paths:
             import cv2
@@ -431,11 +402,9 @@ class ImageSequenceCapture:
                 self.height, self.width = first_frame.shape[:2]
 
     def isOpened(self) -> bool:
-
         return bool(self.image_paths) and self.width > 0 and self.height > 0
 
     def read(self):
-
         import cv2
 
         while self.index < len(self.image_paths):
@@ -446,7 +415,6 @@ class ImageSequenceCapture:
                 print(f"Warning: could not read image, skipped: {image_path}")
                 continue
 
-
             if frame.shape[1] != self.width or frame.shape[0] != self.height:
                 frame = cv2.resize(frame, (self.width, self.height))
             return True, frame
@@ -454,7 +422,6 @@ class ImageSequenceCapture:
         return False, None
 
     def get(self, prop_id: int) -> float:
-
         import cv2
 
         if prop_id == cv2.CAP_PROP_FPS:
@@ -470,12 +437,10 @@ class ImageSequenceCapture:
         return 0.0
 
     def release(self) -> None:
-
         return None
 
 
 def open_frame_source(source: str | int, image_sequence_fps: float = 30.0):
-
     import cv2
 
     if isinstance(source, int):
@@ -489,7 +454,6 @@ def open_frame_source(source: str | int, image_sequence_fps: float = 30.0):
 
 
 def find_image_sequence_files(image_dir: str | Path) -> list[Path]:
-
     directory = Path(image_dir)
     images = [
         path
@@ -500,15 +464,6 @@ def find_image_sequence_files(image_dir: str | Path) -> list[Path]:
 
 
 def infer_image_sequence_fps(image_paths: list[Path], default_fps: float = 30.0) -> float:
-    """
-    Infer FPS from timestamp-style image names.
-
-    UP Fall RGB frames use names such as:
-        2018-07-04T12_04_26.648452.png
-
-    UR Fall frame names do not contain wall-clock timestamps, so those fall back
-    to default_fps.
-    """
     timestamps = [_timestamp_from_image_name(path) for path in image_paths]
     timestamps = [timestamp for timestamp in timestamps if timestamp is not None]
     if len(timestamps) < 2:
@@ -521,7 +476,6 @@ def infer_image_sequence_fps(image_paths: list[Path], default_fps: float = 30.0)
 
 
 def _timestamp_from_image_name(path: Path) -> datetime | None:
-    """Parse UP Fall timestamp image names, returning None for other naming styles."""
     try:
         return datetime.strptime(path.stem, "%Y-%m-%dT%H_%M_%S.%f")
     except ValueError:
@@ -529,23 +483,20 @@ def _timestamp_from_image_name(path: Path) -> datetime | None:
 
 
 def natural_sort_key(path: str | Path) -> list[int | str]:
-
     name = Path(path).name.lower()
     parts = re.split(r"(\d+)", name)
     return [int(part) if part.isdigit() else part for part in parts]
 
 
 def parse_source(value: str) -> str | int:
-
     if value.isdigit():
         return int(value)
     return value
 
 
 def main() -> None:
-
     parser = argparse.ArgumentParser(description="Run fall prediction on a video, image sequence, or webcam.")
-    parser.add_argument("--source", default="0", help="Video path, image directory, or camera index.")
+    parser.add_argument("--source", default="0", help="Video path, image directory, or camera index. Default: camera 0.")
     parser.add_argument(
         "--output-csv",
         default=None,
@@ -554,7 +505,7 @@ def main() -> None:
     parser.add_argument(
         "--output-landmarks-csv",
         default=None,
-        help="Optionally save complete frame-level landmark coordinates and confidence values.",
+        help="Optionally save complete per-frame keypoints and confidence values for occlusion augmentation.",
     )
     parser.add_argument("--output-video", default=None, help="Optional annotated MP4 output path.")
     parser.add_argument("--model", default=None, help="Optional MediaPipe Tasks pose landmarker .task model path.")
@@ -562,91 +513,91 @@ def main() -> None:
         "--pose-backend",
         choices=("mediapipe", "yolo"),
         default="mediapipe",
-        help="Pose backend: MediaPipe or Ultralytics YOLO-pose.",
+        help="Pose backend: mediapipe uses the legacy pipeline; yolo uses Ultralytics YOLO-pose.",
     )
     parser.add_argument(
         "--yolo-model",
         default="models/yolo26n-pose.pt",
-        help="YOLO-pose .pt model loaded when --pose-backend is yolo.",
+        help="Path to the YOLO-pose .pt model used with --pose-backend yolo.",
     )
-    parser.add_argument("--config", default=None, help="Optional JSON configuration, such as configs/default.json.")
-    parser.add_argument("--image-fps", type=float, default=30.0, help="Frame rate used when --source is an image directory.")
+    parser.add_argument("--config", default=None, help="Optional JSON configuration file, for example configs/default.json.")
+    parser.add_argument("--image-fps", type=float, default=30.0, help="Frame rate used when --source is an image directory. Default: 30.")
     parser.add_argument(
         "--predictor",
         choices=("rule", "ml", "deep", "fusion", "ensemble"),
         default="rule",
         help=(
-            "Prediction backend: rule-based, ML tree, causal TCN, skeleton graph + TCN fusion, "
-            "or an ensemble using tree confirmation with early fusion warnings."
+            "Predictor backend: rule, tree-based ml, causal-TCN deep, skeleton-graph + TCN fusion, "
+            "or ensemble with tree confirmation and fusion-model early warning."
         ),
     )
     parser.add_argument(
         "--classifier-model",
         default=None,
-        help="ML/deep classifier path; the tree-model path in ensemble mode.",
+        help="ML/deep classifier path; in ensemble mode, this is the tree-model path.",
     )
     parser.add_argument(
         "--fusion-model",
         default=None,
-        help="Skeleton-feature fusion model for ensemble mode; uses the default model when omitted.",
+        help="Skeleton-feature fusion model path for ensemble mode; uses the default model when omitted.",
     )
     parser.add_argument(
         "--prefall-alert-threshold",
         type=float,
         default=None,
-        help="ML probability threshold for an early Pre-fall alert while the confirmed state remains Normal.",
+        help="ML alert threshold: emit Alert: Pre-fall when Pre-fall probability remains elevated even if state is Normal.",
     )
     parser.add_argument(
         "--prefall-alert-frames",
         type=int,
         default=None,
-        help="Consecutive predictions required above --prefall-alert-threshold.",
+        help="Consecutive frames required above --prefall-alert-threshold. Default: 1.",
     )
     parser.add_argument(
         "--use-hmm",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Enable or disable HMM smoothing; enabled by default for deep, fusion, and ensemble modes.",
+        help="Enable HMM smoothing; on by default for deep/fusion/ensemble and off for rule/ml.",
     )
     parser.add_argument(
         "--use-accel",
         action="store_true",
-        help="Use acceleration features during inference; the model must have been trained with --use-accel.",
+        help="Use acceleration features during inference; the model must also be trained with --use-accel.",
     )
     parser.add_argument(
         "--disable-temporal-fall-validation",
         action="store_true",
-        help="Disable runtime temporal Fall confirmation.",
+        help="Disable runtime temporal Fall confirmation. It is already off by default for deep/fusion/ensemble.",
     )
     parser.add_argument(
         "--enable-temporal-fall-validation",
         action="store_true",
-        help="Enable runtime temporal Fall confirmation explicitly.",
+        help="Enable runtime temporal Fall confirmation; it is off by default for deep/fusion/ensemble to avoid duplicate smoothing.",
     )
     parser.add_argument(
         "--sensitivity",
         choices=("high", "medium", "low"),
         default="medium",
-        help="Temporal ML gate sensitivity: high for earlier alerts, medium for balance, or low for conservative behavior.",
+        help="ML temporal-gate sensitivity: high warns earlier, medium balances false alarms, and low is most conservative.",
     )
     parser.add_argument(
         "--auto-fall-recovery",
         action="store_true",
-        help="Allow automatic Fall recovery after sustained, reliable upright Normal predictions.",
+        help="Allow automatic Fall recovery after sustained reliable upright Normal output. By default, press R or call acknowledge_fall().",
     )
     parser.add_argument(
         "--fusion-fall-confirmation-steps",
         type=int,
         default=3,
-        help="Consecutive confirmations required when only the fusion model predicts Fall.",
+        help="Consecutive fusion-model Fall outputs required when only the fusion branch predicts Fall. Default: 3.",
     )
     parser.add_argument(
         "--static-lying-adl-filter",
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Enable static-lying ADL post-processing in ensemble mode. "
-            "Use --no-static-lying-adl-filter to compare raw model outputs."
+            "Enable static-lying ADL postprocessing in ensemble mode (default: enabled); "
+            "use --no-static-lying-adl-filter to compare raw model output."
         ),
     )
     parser.add_argument("--show", action="store_true", help="Show an OpenCV preview window.")

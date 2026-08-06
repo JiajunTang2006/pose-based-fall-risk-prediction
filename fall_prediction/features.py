@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import math
@@ -53,7 +51,6 @@ LOWER_BODY_LANDMARKS = (
 
 @dataclass(frozen=True)
 class PoseFeatures:
-
     frame_index: int
     timestamp: float
     has_pose: bool
@@ -84,11 +81,8 @@ class PoseFeatures:
 
 class FeatureExtractor:
 
-
     def __init__(self, min_visibility: float = 0.2) -> None:
-
         self.min_visibility = min_visibility
-
         self._previous_center_y: float | None = None
         self._previous_torso_angle: float | None = None
         self._previous_timestamp: float | None = None
@@ -102,8 +96,6 @@ class FeatureExtractor:
         frame_index: int,
         timestamp: float,
     ) -> PoseFeatures:
-
-
         if not has_landmarks(landmarks):
             return PoseFeatures(frame_index=frame_index, timestamp=timestamp, has_pose=False)
 
@@ -152,7 +144,6 @@ class FeatureExtractor:
             self._previous_shoulder_angle = shoulder_line_angle
             self._previous_shoulder_timestamp = timestamp
 
-
         body_width, body_height, aspect_ratio = self._body_box(landmarks)
         visible_lower_body_points = sum(
             landmarks[index].visibility >= self.min_visibility
@@ -173,10 +164,8 @@ class FeatureExtractor:
             and upper_body_height > 1e-6
         )
 
-
         visibility = mean_visibility(landmarks)
         upper_body_visibility = mean_visibility(landmarks, indices=UPPER_BODY_LANDMARKS)
-
 
         dt = self._delta_time(timestamp)
         center_delta = 0.0
@@ -184,23 +173,16 @@ class FeatureExtractor:
         angular_velocity = 0.0
 
         if center_valid and self._previous_center_y is not None:
-
             center_delta = body_center_y - self._previous_center_y
-
             vertical_velocity = center_delta / dt
 
         if torso_valid and self._previous_torso_angle is not None:
-
             angular_velocity = (torso_angle - self._previous_torso_angle) / dt
-
 
         if center_valid:
             self._previous_center_y = body_center_y
         if torso_valid:
             self._previous_torso_angle = torso_angle
-        # Do not advance the motion clock on a bbox-only/fully missing frame.
-        # When torso points return, velocity is then divided by the whole gap
-        # duration instead of being exaggerated as a one-frame jump.
         if center_valid or torso_valid:
             self._previous_timestamp = timestamp
 
@@ -234,7 +216,6 @@ class FeatureExtractor:
         )
 
     def reset(self) -> None:
-
         self._previous_center_y = None
         self._previous_torso_angle = None
         self._previous_timestamp = None
@@ -243,7 +224,6 @@ class FeatureExtractor:
         self._previous_shoulder_timestamp = None
 
     def _delta_time(self, timestamp: float) -> float:
-
         if self._previous_timestamp is None:
             return 1.0 / 30.0
         return max(timestamp - self._previous_timestamp, 1e-6)
@@ -253,8 +233,6 @@ class FeatureExtractor:
         landmarks: Sequence[Landmark],
         indices: Sequence[int] | None = None,
     ) -> tuple[float, float, float]:
-
-
         points = (
             visible_points(landmarks, self.min_visibility)
             if indices is None
@@ -267,7 +245,6 @@ class FeatureExtractor:
         if len(points) < 2:
             return 0.0, 0.0, 0.0
 
-
         min_x = min(point.x for point in points)
         max_x = max(point.x for point in points)
         min_y = min(point.y for point in points)
@@ -275,7 +252,6 @@ class FeatureExtractor:
 
         width = max_x - min_x
         height = max_y - min_y
-
         aspect_ratio = width / max(height, 1e-6)
         return width, height, aspect_ratio
 
@@ -284,15 +260,12 @@ class FeatureExtractor:
 
     @staticmethod
     def _torso_angle_from_vertical(shoulder_mid: Landmark, hip_mid: Landmark) -> float:
-
         dx = shoulder_mid.x - hip_mid.x
         dy = shoulder_mid.y - hip_mid.y
-
         return math.degrees(math.atan2(abs(dx), max(abs(dy), 1e-6)))
 
     @staticmethod
     def _signed_torso_angle_from_vertical(shoulder_mid: Landmark, hip_mid: Landmark) -> float:
-        """Signed tilt around the image vertical; standing is approximately 0°."""
         dx = shoulder_mid.x - hip_mid.x
         upward_dy = hip_mid.y - shoulder_mid.y
         return math.degrees(math.atan2(dx, max(upward_dy, 1e-6)))

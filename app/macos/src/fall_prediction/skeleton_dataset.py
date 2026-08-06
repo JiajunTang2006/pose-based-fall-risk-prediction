@@ -1,5 +1,3 @@
-"""Paired skeleton/engineered-feature windows for graph-model training."""
-
 from __future__ import annotations
 
 import csv
@@ -23,7 +21,6 @@ from .window_dataset import (
 )
 
 
-# COCO keypoint order expressed as indices in the project's MediaPipe-33 layout.
 COCO_MEDIAPIPE_INDICES = (
     0,
     2,
@@ -79,7 +76,6 @@ SKELETON_CHANNELS = ("x", "y", "visibility", "dx", "dy")
 
 @dataclass(frozen=True)
 class PairedTemporalDataset:
-    """Aligned feature and skeleton windows."""
 
     features: np.ndarray
     skeletons: np.ndarray
@@ -99,7 +95,6 @@ def build_paired_temporal_dataset(
     stride: int,
     use_accel: bool = True,
 ) -> PairedTemporalDataset:
-    """Build exactly aligned legacy-feature and normalized-skeleton windows."""
     feature_paths = sorted(Path(path) for path in feature_csv_paths)
     feature_columns = ACCEL_FEATURE_COLUMNS if use_accel else ML_FEATURE_COLUMNS
     flat_dataset = build_window_dataset(
@@ -189,7 +184,6 @@ def build_paired_temporal_dataset(
 
 
 def index_landmark_csvs(landmark_dirs: Sequence[str | Path]) -> dict[str, Path]:
-    """Index ``*_landmarks.csv`` files by their matching feature stem."""
     result: dict[str, Path] = {}
     for directory in landmark_dirs:
         for path in sorted(Path(directory).rglob("*_landmarks.csv")):
@@ -206,7 +200,6 @@ def load_landmark_rows(path: str | Path) -> list[dict[str, str]]:
 
 
 def normalize_skeleton_rows(rows: Sequence[dict[str, str]]) -> np.ndarray:
-    """Return translation/scale-normalized COCO skeletons as ``[5, time, 17]``."""
     frame_count = len(rows)
     joint_count = len(COCO_MEDIAPIPE_INDICES)
     coordinates = np.zeros((frame_count, joint_count, 2), dtype=np.float32)
@@ -246,7 +239,6 @@ def normalize_skeleton_rows(rows: Sequence[dict[str, str]]) -> np.ndarray:
 
 
 def normalize_skeleton_frame(coordinates: np.ndarray, visibility: np.ndarray) -> np.ndarray:
-    """Center on the hips and scale by torso length, with visibility-aware fallbacks."""
     valid = visibility > 0.05
     if not np.any(valid):
         return np.zeros_like(coordinates)
@@ -279,7 +271,6 @@ def landmarks_to_skeleton_frame(
     landmarks,
     previous_frame: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Convert runtime landmarks to one normalized ``[5, 17]`` skeleton frame."""
     joint_count = len(COCO_MEDIAPIPE_INDICES)
     coordinates = np.zeros((joint_count, 2), dtype=np.float32)
     visibility = np.zeros(joint_count, dtype=np.float32)
@@ -302,7 +293,6 @@ def landmarks_to_skeleton_frame(
 
 
 def fit_skeleton_normalizer(skeletons: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Fit per-channel statistics on training skeleton windows only."""
     mean = skeletons.mean(axis=(0, 2, 3), dtype=np.float64).astype(np.float32)
     std = skeletons.std(axis=(0, 2, 3), dtype=np.float64).astype(np.float32)
     std = np.where(std < 1e-6, 1.0, std).astype(np.float32)

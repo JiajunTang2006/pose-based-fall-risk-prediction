@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS events (
     thumbnail_path  TEXT,
     video_clip_path TEXT,
     user_feedback   TEXT,                    -- confirmed | near_fall | normal | false_alarm | unsure
+    annotation_label TEXT,                   -- Normal | Pre-fall | Fall (human-confirmed)
+    prefall_start_seconds REAL,
+    fall_start_seconds REAL,
     notes           TEXT,
     created_at      TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES monitoring_sessions(id) ON DELETE CASCADE,

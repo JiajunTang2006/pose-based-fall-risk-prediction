@@ -484,7 +484,6 @@ class TemporalSequenceGateTest(unittest.TestCase):
             ("Pre-fall", "Pre-fall"),
         )
 
-        # Low keeps the warning visible while requiring three Fall candidates.
         self.assertEqual(
             gate.validate("Pre-fall", "Pre-fall", ambiguous_probs, fall_motion_rows()),
             ("Pre-fall", "Pre-fall"),
@@ -530,14 +529,12 @@ class TemporalSequenceGateTest(unittest.TestCase):
             ("Fall", "Fall"),
         )
 
-
         for index in range(50):
             if index % 2 == 0:
                 result = gate.validate("Normal", "Normal", normal_probs, standing_rows())
             else:
                 result = gate.validate("Fall", "Fall", fall_probs, lying_rows())
             self.assertEqual(result, ("Fall", "Fall"))
-
 
         for _ in range(gate.profile.fall_recovery_normal_frames - 1):
             self.assertEqual(
@@ -548,7 +545,6 @@ class TemporalSequenceGateTest(unittest.TestCase):
             gate.validate("Normal", "Normal", normal_probs, standing_rows()),
             ("Normal", "Normal"),
         )
-
 
         self.assertEqual(
             gate.validate("Fall", "Fall", fall_probs, lying_rows()),

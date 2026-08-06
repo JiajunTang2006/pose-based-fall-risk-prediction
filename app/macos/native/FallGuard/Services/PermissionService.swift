@@ -53,6 +53,17 @@ enum PermissionService {
         NSWorkspace.shared.open(url)
     }
 
+    static func openNotificationSettings() {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.fallguard.desktop"
+        let encoded = bundleID.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ) ?? bundleID
+        let url = URL(string:
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension?bundleId=\(encoded)"
+        )!
+        NSWorkspace.shared.open(url)
+    }
+
     // MARK: General
 
     /// Open the main Security & Privacy preference pane.

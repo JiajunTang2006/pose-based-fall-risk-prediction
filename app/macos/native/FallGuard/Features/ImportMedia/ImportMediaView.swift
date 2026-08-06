@@ -230,7 +230,7 @@ struct ImportMediaView: View {
                     .font(FallGuardFont.title2)
                     .foregroundColor(FallGuardColors.textPrimary(for: colorScheme))
                 if let err = job.error {
-                    Text(err.messageKey)
+                    Text(NSLocalizedString(err.messageKey, comment: ""))
                         .font(FallGuardFont.body)
                         .foregroundColor(FallGuardColors.textSecondary(for: colorScheme))
                 }
@@ -249,7 +249,11 @@ struct ImportMediaView: View {
                     HStack {
                         Text("\(Int(job.progress * 100))%")
                         Spacer()
-                        Text("Frame \(job.currentFrame) / \(job.totalFrames)")
+                        Text(String(
+                            format: NSLocalizedString("import.frame_progress", comment: ""),
+                            job.currentFrame,
+                            job.totalFrames
+                        ))
                     }
                     .font(FallGuardFont.caption)
                     .foregroundColor(FallGuardColors.muted(for: colorScheme))

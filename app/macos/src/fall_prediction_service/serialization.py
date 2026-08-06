@@ -159,6 +159,11 @@ def serialize_status(
         timestamp_ms=int(time.time() * 1000),
         monitoring=monitoring,
         loading=bool(snapshot.get("loading", False)),
+        active_event_id=(
+            str(snapshot["activeEventId"])
+            if snapshot.get("activeEventId")
+            else None
+        ),
         prediction=prediction,
         performance=performance,
         error=error_dto,
@@ -236,6 +241,23 @@ def serialize_event(event_row: dict[str, Any]) -> dict[str, Any]:
         started_at=str(event_row.get("started_at", "")),
         ended_at=event_row.get("ended_at"),
         session_id=event_row.get("session_id"),
+        avg_risk=float(event_row.get("avg_risk", 0.0)),
+        duration_seconds=float(event_row.get("duration_seconds", 0.0)),
+        thumbnail_path=event_row.get("thumbnail_path"),
+        video_clip_path=event_row.get("video_clip_path"),
+        clip_fps=(
+            float(event_row["clip_fps"])
+            if event_row.get("clip_fps") is not None else None
+        ),
+        clip_duration_seconds=(
+            float(event_row["clip_duration_seconds"])
+            if event_row.get("clip_duration_seconds") is not None else None
+        ),
+        user_feedback=event_row.get("user_feedback"),
+        annotation_label=event_row.get("annotation_label"),
+        prefall_start_seconds=event_row.get("prefall_start_seconds"),
+        fall_start_seconds=event_row.get("fall_start_seconds"),
+        notes=event_row.get("notes"),
     ).to_dict()
 
 

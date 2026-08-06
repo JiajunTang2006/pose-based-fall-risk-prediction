@@ -92,6 +92,41 @@ struct FallGuardAPIClient {
         return try await get(path: "events?\(query)")
     }
 
+    func updateEventFeedback(
+        id: String,
+        feedback: String,
+        notes: String,
+        annotationLabel: String? = nil,
+        prefallStartSeconds: Double? = nil,
+        fallStartSeconds: Double? = nil,
+        clipDurationSeconds: Double? = nil
+    ) async throws -> EventDTO {
+        var values: [String: Any] = [
+            "feedback": feedback,
+            "notes": notes,
+        ]
+        if let annotationLabel {
+            values["annotation_label"] = annotationLabel
+            values["prefall_start_seconds"] = prefallStartSeconds ?? NSNull()
+            values["fall_start_seconds"] = fallStartSeconds ?? NSNull()
+            values["clip_duration_seconds"] = clipDurationSeconds ?? NSNull()
+        }
+        let body = try JSONSerialization.data(withJSONObject: values)
+        return try await put(path: "events/\(id)/feedback", body: body)
+    }
+
+    func exportTrainingDataset(to outputDirectory: String) async throws
+        -> DatasetExportResponse {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "output_directory": outputDirectory,
+        ])
+        return try await post(path: "dataset/export", body: body, timeout: 120)
+    }
+
+    func clearHistory() async throws -> ClearHistoryResponse {
+        try await delete(path: "history")
+    }
+
     // MARK: Sessions
 
     func getSessions(limit: Int = 50) async throws -> PaginatedResponse<SessionDTO> {

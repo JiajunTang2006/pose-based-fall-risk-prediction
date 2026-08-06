@@ -89,6 +89,7 @@
 "events.empty" = "暂无事件记录。开始监控后将自动检测跌倒事件。";
 "events.count" = "%d 个事件";
 "events.copy_id" = "复制事件 ID";
+"events.video_available" = "包含事件录像";
 "events.filter.all" = "全部类型";
 "events.filter.fall" = "跌倒";
 "events.filter.prefall" = "预跌倒";
@@ -97,6 +98,37 @@
 "events.filter.resolved" = "已解决";
 "event.type.fall" = "检测到跌倒";
 "event.type.prefall" = "预跌倒警告";
+"event.status.open" = "进行中";
+"event.status.ended" = "已结束";
+"event.status.reviewed" = "已复核";
+"event.detail.close" = "关闭";
+"event.detail.started" = "开始时间";
+"event.detail.ended" = "结束时间";
+"event.detail.duration" = "持续时间";
+"event.detail.peak_risk" = "峰值风险";
+"event.detail.avg_risk" = "平均风险";
+"event.detail.status" = "状态";
+"event.detail.id" = "事件 ID";
+"event.detail.open_video" = "播放事件录像";
+"event.duration.format" = "%.1f 秒";
+"event.feedback.title" = "事件确认";
+"event.feedback.confirmed" = "确认跌倒";
+"event.feedback.near_fall" = "险些跌倒";
+"event.feedback.normal" = "正常活动";
+"event.feedback.false_alarm" = "误报";
+"event.feedback.unsure" = "不确定";
+"event.feedback.notes" = "备注";
+"event.feedback.save" = "保存确认结果";
+"event.annotation.title" = "训练数据标注";
+"event.annotation.Normal" = "Normal";
+"event.annotation.Pre-fall" = "Pre-fall";
+"event.annotation.Fall" = "Fall";
+"event.annotation.clip_duration" = "录像时长约 %.1f 秒。请播放录像后确认状态切换时间。";
+"event.annotation.prefall_start" = "Pre-fall 开始";
+"event.annotation.fall_start" = "Fall 开始";
+"event.annotation.seconds" = "秒";
+"event.annotation.hint" = "导出时自动换算为帧区间：Normal 保留 Pre-fall 前 30 帧，Fall 最多保留 60 帧。";
+"event.annotation.normal_excluded" = "确认整段为 Normal 后会保存结果，但不会导出到训练数据集。";
 
 /* 导入媒体页面：文件选择、处理进度和结果文字 */
 "import.title" = "导入媒体";
@@ -107,6 +139,7 @@
 "import.selected" = "已选文件";
 "import.clear" = "清空";
 "import.start" = "开始导入";
+"import.frame_progress" = "第 %d / %d 帧";
 "import.complete" = "导入完成";
 "import.output" = "输出：";
 "import.new" = "新建导入";
@@ -129,6 +162,7 @@
 "profiles.activate" = "激活";
 "profiles.active_label" = "使用中";
 "profiles.delete" = "删除";
+"profiles.delete_requires_another" = "至少需要保留一个档案";
 "profiles.delete_title" = "删除档案？";
 "profiles.delete_message" = "确定要删除「%@」吗？此操作无法撤销。";
 "profiles.fall_count" = "%d 次跌倒";
@@ -149,20 +183,36 @@
 "settings.notifications" = "通知";
 "settings.sound_alert" = "检测到跌倒时播放警报声";
 "settings.sound_note" = "检测到跌倒时将播放系统提示音。";
+"settings.system_notifications_enabled" = "系统通知已启用";
+"settings.system_notifications_disabled" = "系统通知未启用";
+"settings.open_notification_settings" = "打开系统设置";
+"settings.startup" = "启动";
+"settings.launch_at_login" = "登录后自动启动 FallGuard";
+"settings.launch_at_login_note" = "关闭主窗口后，FallGuard 会继续在菜单栏运行。";
 "settings.appearance" = "外观";
 "settings.theme" = "主题";
 "settings.language" = "语言";
 "settings.version" = "版本 %@";
 "settings.api_version" = "API 版本";
 "settings.service" = "服务状态";
-"settings.copyright" = "Copyright © 2025 FallGuard. All rights reserved.";
+"settings.copyright" = "版权所有 © 2026 FallGuard。";
+"settings.view_safety_notice" = "查看使用提醒";
 "settings.data_management" = "数据管理";
 "settings.export_logs" = "导出日志";
 "settings.export_logs_detail" = "将诊断日志保存为 JSON 文件。";
+"settings.export_dataset" = "导出训练数据集";
+"settings.export_dataset_detail" = "导出已人工确认且含 Pre-fall 或 Fall 的事件录像与兼容标注 CSV。";
+"settings.export_dataset_choose" = "导出到此处";
+"settings.export_dataset_complete" = "训练数据集已导出";
+"settings.export_dataset_open" = "在 Finder 中打开";
+"settings.export_dataset_result" = "已导出 %d 段录像和 %d 条帧区间标注。";
 "settings.clear_history" = "清除历史";
 "settings.clear_history_detail" = "删除所有事件记录和监控数据。";
-"settings.open_data" = "打开数据文件夹";
-"settings.open_data_detail" = "在 Finder 中打开应用数据目录。";
+"settings.open_data" = "打开媒体与数据文件夹";
+"settings.open_data_detail" = "在 Finder 中打开事件录像、缩略图和数据库目录。";
+"settings.clear_history_confirm_title" = "清除全部历史？";
+"settings.clear_history_confirm_message" = "这会删除事件、监控会话、风险记录和由 FallGuard 保存的事件媒体。此操作无法撤销。";
+"settings.clear_history_complete" = "历史记录已清除";
 
 /* 设置 > 外观：主题选项 */
 "theme.system" = "跟随系统";
@@ -173,6 +223,8 @@
 "sensitivity.low" = "低";
 "sensitivity.medium" = "中";
 "sensitivity.high" = "高";
+"threshold.fall_threshold" = "跌倒阈值";
+"threshold.prefall_threshold" = "预跌倒阈值";
 
 /* macOS 屏幕最顶部系统菜单：文件、编辑、显示、窗口、帮助等 */
 "menu.about" = "关于 FallGuard";
@@ -207,6 +259,33 @@
 "notification.fall.body" = "检测到可能的跌倒事件（风险：%d%%），请立即查看。";
 "notification.prefall.title" = "预跌倒警告";
 "notification.prefall.body" = "检测到不稳定动作（风险：%d%%），请留意。";
+"notification.help_needed.title" = "需要立即查看";
+"notification.help_needed.timeout" = "跌倒响应倒计时已结束且无人确认。FallGuard 当前仅提供本机提醒，请立即查看现场。";
+"notification.help_needed.requested" = "用户已选择“需要帮助”。FallGuard 当前仅提供本机提醒，请立即查看现场。";
+
+/* 首次启动安全说明 */
+"safety.title" = "使用 FallGuard 前请确认";
+"safety.subtitle" = "了解辅助监测的能力边界";
+"safety.not_medical" = "FallGuard 是辅助监测工具，不属于医疗设备，也不能提供医疗诊断。";
+"safety.not_emergency_service" = "FallGuard 不能替代急救电话、照护人员或其他紧急救援服务。";
+"safety.camera_local" = "摄像头画面和检测过程保留在本机，除非你主动导出文件。";
+"safety.test_regularly" = "请定期测试摄像头、声音和系统通知，并保持其他可靠的求助方式。";
+"safety.consent" = "点击“我已了解”表示你理解上述限制；确认前无法开始监控。";
+"safety.acknowledge" = "我已了解";
+
+/* 确认跌倒后的 20 秒本机响应流程 */
+"emergency.countdown.title" = "检测到跌倒，你还好吗？";
+"emergency.countdown.detail" = "如果没有响应，FallGuard 将升级为持续的本机紧急提醒。目前不会自动联系外部人员。";
+"emergency.countdown.accessibility" = "还剩 %d 秒";
+"emergency.im_okay" = "我没事";
+"emergency.need_help" = "需要帮助";
+"emergency.help.title" = "需要帮助";
+"emergency.help.timeout_detail" = "响应倒计时已结束且无人确认。请立即查看现场；当前版本不会自动通知外部联系人。";
+"emergency.help.requested_detail" = "用户已明确选择需要帮助。请立即采取现场处置或拨打急救电话。";
+"emergency.handled" = "已处理";
+"emergency.feedback.im_okay" = "用户在跌倒响应倒计时中选择“我没事”。";
+"emergency.feedback.timeout" = "跌倒响应倒计时结束，无人确认。";
+"emergency.feedback.help_requested" = "用户在跌倒响应倒计时中选择“需要帮助”。";
 
 /* 退出程序等确认弹窗 */
 "alert.quit.monitoring.title" = "监控仍在运行";
@@ -224,7 +303,11 @@
 "error.connection.lost" = "与后台服务的连接已断开。";
 "error.startup.cancelled" = "后台服务启动已取消。";
 "error.import.stop_monitoring" = "导入媒体前请先停止监控。";
+"error.camera.permission_denied" = "FallGuard 没有摄像头权限。请在系统设置的“隐私与安全性 > 摄像头”中允许访问。";
+"camera.permission.title" = "需要摄像头权限";
+"camera.permission.open_settings" = "打开系统设置";
 
 /* 多个页面共用的通用按钮文字 */
 "cancel" = "取消";
 "delete" = "删除";
+"ok" = "好";

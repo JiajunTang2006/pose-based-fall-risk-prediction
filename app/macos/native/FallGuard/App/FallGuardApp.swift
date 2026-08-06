@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // macOS 顶部系统菜单文案：Resources/*/Localizable.strings 中的 Menu 分组。
 /// Main entry point for the FallGuard SwiftUI application.
@@ -65,9 +66,6 @@ struct FallGuardApp: App {
 
             // Help
             CommandGroup(replacing: .help) {
-                Button(NSLocalizedString("menu.diagnostics", comment: "")) {
-                    // Opens diagnostics
-                }
                 Button(NSLocalizedString("menu.export_logs", comment: "")) {
                     Task { await exportLogs() }
                 }
@@ -80,12 +78,42 @@ struct FallGuardApp: App {
                 .environmentObject(themeManager)
                 .environmentObject(languageManager)
                 .environment(\.locale, languageManager.locale)
+                .preferredColorScheme(themeManager.effective)
                 .frame(width: 780, height: 540)
         }
     }
 
     private func exportLogs() async {
-        // Stub: collect logs from Python stderr + app logs
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "fallguard_diagnostics.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let events = store.recentEvents.map {
+            [
+                "id": $0.id,
+                "type": $0.eventType,
+                "status": $0.status,
+                "peak_risk": $0.peakRisk,
+                "started_at": $0.startedAt,
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = [
+            "exported_at": ISO8601DateFormatter().string(from: Date()),
+            "service": store.serviceManager.state.displayText,
+            "monitoring": store.isMonitoring,
+            "fps": store.fps,
+            "camera_index": store.currentCameraIndex,
+            "recent_events": events,
+        ]
+        do {
+            let data = try JSONSerialization.data(
+                withJSONObject: payload,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try data.write(to: url, options: .atomic)
+        } catch {
+            store.connectionError = error.localizedDescription
+        }
     }
 
     /// Make the window chrome transparent so the shared ambient gradient

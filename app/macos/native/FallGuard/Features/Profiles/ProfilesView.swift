@@ -54,6 +54,7 @@ struct ProfilesView: View {
                             ProfileCard(
                                 profile: profile,
                                 isActive: profile.id == store.activeProfileId,
+                                canDelete: store.profiles.count > 1,
                                 scheme: colorScheme,
                                 onActivate: { Task { await store.activateProfile(id: profile.id) } },
                                 onDelete: {
@@ -111,6 +112,7 @@ struct ProfilesView: View {
 struct ProfileCard: View {
     let profile: ProfileDTO
     let isActive: Bool
+    let canDelete: Bool
     let scheme: ColorScheme
     let onActivate: () -> Void
     let onDelete: () -> Void
@@ -137,7 +139,7 @@ struct ProfileCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.name)
+                    Text(displayName)
                         .font(FallGuardFont.headline)
                         .foregroundColor(FallGuardColors.textPrimary(for: scheme))
                     Text(formattedCreatedAt)
@@ -188,7 +190,8 @@ struct ProfileCard: View {
                         .foregroundColor(FallGuardColors.muted(for: scheme))
                 }
                 .buttonStyle(.borderless)
-                .help("profiles.delete")
+                .disabled(!canDelete)
+                .help(canDelete ? "profiles.delete" : "profiles.delete_requires_another")
             }
         }
         .padding(FallGuardSpacing.s16)
@@ -218,6 +221,16 @@ struct ProfileCard: View {
         guard let date = parser.date(from: profile.createdAt) else {
             return profile.createdAt
         }
-        return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none)
+        let formatter = DateFormatter()
+        formatter.locale = LanguageManager.formattingLocale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+
+    private var displayName: String {
+        profile.name == "Default"
+            ? NSLocalizedString("profile.default", comment: "")
+            : profile.name
     }
 }

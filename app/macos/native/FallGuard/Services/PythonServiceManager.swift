@@ -52,6 +52,9 @@ final class PythonServiceManager: ObservableObject {
     private var stderrPipe: Pipe?
     private var stderrReadHandle: FileHandle?
     private var startTask: Task<Void, Never>?
+    private var automaticRestartTask: Task<Void, Never>?
+    private var shortLivedCrashCount = 0
+    private var lastReadyAt: Date?
 
     /// Maximum seconds to wait for the ``ready`` line from the child process.
     private let startupTimeout: TimeInterval = 20.0
@@ -153,6 +156,7 @@ final class PythonServiceManager: ObservableObject {
                 }
 
                 state = .ready(baseURL: baseURL, token: ready.token)
+                lastReadyAt = Date()
                 logger.info("Service state → ready")
 
             } catch is CancellationError {
@@ -170,6 +174,8 @@ final class PythonServiceManager: ObservableObject {
 
     /// Gracefully stop the service: POST /shutdown, then terminate.
     func stop() async {
+        automaticRestartTask?.cancel()
+        automaticRestartTask = nil
         guard case .ready(let baseURL, let token) = state else {
             startTask?.cancel()
             if devPort == nil {
@@ -375,8 +381,30 @@ final class PythonServiceManager: ObservableObject {
                 "error.service.unexpected_exit",
                 comment: "Service stopped unexpectedly"
             ))
+            clearProcessReferences()
+            scheduleAutomaticRestart()
         case .stopping, .stopped, .failed:
             break  // expected
+        }
+    }
+
+    private func scheduleAutomaticRestart() {
+        if let lastReadyAt, Date().timeIntervalSince(lastReadyAt) >= 60 {
+            shortLivedCrashCount = 0
+        }
+        shortLivedCrashCount += 1
+        guard shortLivedCrashCount <= 3 else {
+            logger.error("Automatic service restart stopped after 3 short-lived crashes")
+            return
+        }
+        let delay = UInt64(shortLivedCrashCount * 2)
+        logger.warning("Scheduling service restart attempt \(self.shortLivedCrashCount) in \(delay)s")
+        automaticRestartTask?.cancel()
+        automaticRestartTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            guard case .failed = self.state else { return }
+            await self.start()
         }
     }
 

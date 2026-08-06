@@ -1,4 +1,6 @@
 import SwiftUI
+import ServiceManagement
+import UniformTypeIdentifiers
 
 // 文案修改位置：Resources/*/Localizable.strings 中的 Settings、Theme、Sensitivity 分组。
 // “关于”页面的 FallGuard 和版本号是本文件中少量直接显示的文字。
@@ -109,6 +111,16 @@ struct SettingsView: View {
             Task {
                 if store.settings == nil { await store.refreshSettings() }
             }
+            DispatchQueue.main.async {
+                let title = String(
+                    format: "%@ %@",
+                    "FallGuard",
+                    NSLocalizedString("settings.title", comment: "")
+                )
+                NSApp.windows.first {
+                    $0.identifier?.rawValue == "com_apple_SwiftUI_Settings_window"
+                }?.title = title
+            }
         }
     }
 }
@@ -120,6 +132,7 @@ struct GeneralPage: View {
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var languageManager: LanguageManager
     let scheme: ColorScheme
+    @State private var launchAtLogin = false
 
     var body: some View {
         ScrollView {
@@ -148,6 +161,7 @@ struct GeneralPage: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
 
                 SettingGroup(label: "settings.theme", scheme: scheme) {
@@ -172,9 +186,31 @@ struct GeneralPage: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+
+                if #available(macOS 13.0, *) {
+                    SettingGroup(label: "settings.startup", scheme: scheme) {
+                        VStack(alignment: .leading, spacing: FallGuardSpacing.s8) {
+                            Toggle("settings.launch_at_login", isOn: Binding(
+                                get: { launchAtLogin },
+                                set: { updateLaunchAtLogin($0) }
+                            ))
+                            Text("settings.launch_at_login_note")
+                                .font(FallGuardFont.caption2)
+                                .foregroundColor(FallGuardColors.muted(for: scheme))
+                        }
+                    }
                 }
             }
-            .padding(FallGuardSpacing.s24)
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.vertical, FallGuardSpacing.s24)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .onAppear {
+            if #available(macOS 13.0, *) {
+                launchAtLogin = SMAppService.mainApp.status == .enabled
+            }
         }
     }
 
@@ -186,6 +222,21 @@ struct GeneralPage: View {
 
     private func saveTheme(_ mode: ThemeMode) {
         Task { await store.updateSettings(["theme": mode.rawValue]) }
+    }
+
+    @available(macOS 13.0, *)
+    private func updateLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        } catch {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            store.connectionError = error.localizedDescription
+        }
     }
 }
 
@@ -222,6 +273,7 @@ struct DetectionPage: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .center)
 
                         if let thresholds = store.settings?.thresholds, !thresholds.isEmpty {
                             HStack(spacing: FallGuardSpacing.s24) {
@@ -230,18 +282,21 @@ struct DetectionPage: View {
                                         Text(String(format: "%.2f", val))
                                             .font(.system(.callout, design: .rounded).bold())
                                             .foregroundColor(FallGuardColors.textPrimary(for: scheme))
-                                        Text(key.replacingOccurrences(of: "_", with: " "))
+                                        Text(NSLocalizedString("threshold.\(key)", comment: ""))
                                             .font(FallGuardFont.caption2)
                                             .foregroundColor(FallGuardColors.muted(for: scheme))
                                     }
                                 }
                             }
                             .padding(.top, FallGuardSpacing.s4)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         }
                     }
                 }
             }
-            .padding(FallGuardSpacing.s24)
+            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.vertical, FallGuardSpacing.s24)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .onAppear {
             sensitivity = store.settings?.sensitivity ?? "medium"
@@ -264,15 +319,34 @@ struct AlertsPage: View {
                 PageHeader(title: "settings.tab.alerts", icon: "bell", scheme: scheme)
 
                 SettingGroup(label: "settings.notifications", scheme: scheme) {
-                    Toggle("settings.sound_alert", isOn: $soundAlert)
-                        .onChange(of: soundAlert) { newVal in
-                            Task { await store.updateSettings(["sound_alert": newVal]) }
+                    VStack(alignment: .leading, spacing: FallGuardSpacing.s12) {
+                        HStack {
+                            Label(
+                                store.notificationsAuthorized
+                                    ? "settings.system_notifications_enabled"
+                                    : "settings.system_notifications_disabled",
+                                systemImage: store.notificationsAuthorized
+                                    ? "checkmark.circle.fill" : "exclamationmark.circle"
+                            )
+                            Spacer()
+                            if !store.notificationsAuthorized {
+                                Button("settings.open_notification_settings") {
+                                    PermissionService.openNotificationSettings()
+                                }
+                            }
                         }
-                    Text("settings.sound_note")
-                        .font(FallGuardFont.caption2)
-                        .foregroundColor(FallGuardColors.muted(for: scheme))
+
+                        Toggle("settings.sound_alert", isOn: $soundAlert)
+                            .onChange(of: soundAlert) { newVal in
+                                Task { await store.updateSettings(["sound_alert": newVal]) }
+                            }
+                        Text("settings.sound_note")
+                            .font(FallGuardFont.caption2)
+                            .foregroundColor(FallGuardColors.muted(for: scheme))
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(FallGuardSpacing.s24)
         }
         .onAppear {
@@ -284,6 +358,11 @@ struct AlertsPage: View {
 struct DataPage: View {
     @EnvironmentObject var store: AppStore
     let scheme: ColorScheme
+    @State private var showingClearConfirmation = false
+    @State private var clearSucceeded = false
+    @State private var showingExportResult = false
+    @State private var exportMessage = ""
+    @State private var exportedDirectory: URL?
 
     var body: some View {
         ScrollView {
@@ -292,6 +371,14 @@ struct DataPage: View {
 
                 SettingGroup(label: "settings.data_management", scheme: scheme) {
                     VStack(spacing: FallGuardSpacing.s12) {
+                        SettingActionRow(
+                            icon: "shippingbox.and.arrow.backward",
+                            title: "settings.export_dataset",
+                            detail: "settings.export_dataset_detail",
+                            scheme: scheme,
+                            action: { exportTrainingDataset() }
+                        )
+                        Divider()
                         SettingActionRow(
                             icon: "square.and.arrow.up",
                             title: "settings.export_logs",
@@ -305,7 +392,7 @@ struct DataPage: View {
                             title: "settings.clear_history",
                             detail: "settings.clear_history_detail",
                             scheme: scheme,
-                            action: { /* TODO */ }
+                            action: { showingClearConfirmation = true }
                         )
                         Divider()
                         SettingActionRow(
@@ -318,7 +405,34 @@ struct DataPage: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(FallGuardSpacing.s24)
+        }
+        .alert("settings.clear_history_confirm_title",
+               isPresented: $showingClearConfirmation) {
+            Button("cancel", role: .cancel) {}
+            Button("settings.clear_history", role: .destructive) {
+                Task {
+                    clearSucceeded = await store.clearHistory()
+                }
+            }
+        } message: {
+            Text("settings.clear_history_confirm_message")
+        }
+        .alert("settings.clear_history_complete",
+               isPresented: $clearSucceeded) {
+            Button("ok") {}
+        }
+        .alert("settings.export_dataset_complete",
+               isPresented: $showingExportResult) {
+            Button("ok") {}
+            if let exportedDirectory {
+                Button("settings.export_dataset_open") {
+                    NSWorkspace.shared.open(exportedDirectory)
+                }
+            }
+        } message: {
+            Text(exportMessage)
         }
     }
 
@@ -326,17 +440,94 @@ struct DataPage: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "fallguard_logs.json"
-        panel.begin { _ in }
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let settingsPayload: [String: Any] = [
+                "sensitivity": store.settings?.sensitivity ?? "",
+                "camera_index": store.settings?.cameraIndex ?? 0,
+                "theme": store.settings?.theme ?? "",
+                "language": store.settings?.lang ?? "",
+            ]
+            let eventPayload = store.recentEvents.map { event in
+                [
+                    "id": event.id,
+                    "type": event.eventType,
+                    "status": event.status,
+                    "peak_risk": event.peakRisk,
+                    "started_at": event.startedAt,
+                    "ended_at": event.endedAt as Any? ?? NSNull(),
+                ] as [String: Any]
+            }
+            let payload: [String: Any] = [
+                "exported_at": ISO8601DateFormatter().string(from: Date()),
+                "app_version": Bundle.main.object(
+                    forInfoDictionaryKey: "CFBundleShortVersionString"
+                ) as? String ?? "unknown",
+                "service": store.serviceManager.state.displayText,
+                "settings": settingsPayload,
+                "recent_events": eventPayload,
+            ]
+            do {
+                let data = try JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]
+                )
+                try data.write(to: url, options: .atomic)
+            } catch {
+                Task { @MainActor in
+                    store.connectionError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func exportTrainingDataset() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = NSLocalizedString("settings.export_dataset_choose", comment: "")
+        panel.begin { response in
+            guard response == .OK, let destination = panel.url else { return }
+            Task {
+                guard let result = await store.exportTrainingDataset(
+                    to: destination.path
+                ) else { return }
+                await MainActor.run {
+                    exportedDirectory = URL(
+                        fileURLWithPath: result.outputDirectory,
+                        isDirectory: true
+                    )
+                    exportMessage = String(
+                        format: NSLocalizedString(
+                            "settings.export_dataset_result", comment: ""
+                        ),
+                        result.videoCount,
+                        result.annotationCount
+                    )
+                    showingExportResult = true
+                }
+            }
+        }
     }
 
     private func openDataFolder() {
-        NSWorkspace.shared.open(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!)
+        let root = FileManager.default.urls(
+            for: .moviesDirectory,
+            in: .userDomainMask
+        ).first!.appendingPathComponent("FallGuard", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: root, withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.open(root)
     }
 }
 
 struct AboutPage: View {
     @EnvironmentObject var store: AppStore
     let scheme: ColorScheme
+    @State private var showingSafetyNotice = false
 
     var body: some View {
         VStack(spacing: FallGuardSpacing.s24) {
@@ -346,16 +537,23 @@ struct AboutPage: View {
                 Circle()
                     .fill(FallGuardColors.primary(for: scheme).opacity(0.1))
                     .frame(width: 80, height: 80)
-                Image(systemName: "shield.checkered")
-                    .font(.system(size: 36))
-                    .foregroundColor(FallGuardColors.primary(for: scheme))
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 54, height: 54)
             }
 
             Text("FallGuard")
                 .font(FallGuardFont.title)
                 .foregroundColor(FallGuardColors.textPrimary(for: scheme))
 
-            Text("settings.version 0.3.3")
+            Text(String(
+                format: NSLocalizedString("settings.version", comment: ""),
+                Bundle.main.object(
+                    forInfoDictionaryKey: "CFBundleShortVersionString"
+                ) as? String ?? "0.3.3"
+            ))
                 .font(FallGuardFont.body)
                 .foregroundColor(FallGuardColors.textSecondary(for: scheme))
 
@@ -379,6 +577,19 @@ struct AboutPage: View {
             )
             .frame(width: 300)
 
+            Button {
+                showingSafetyNotice = true
+            } label: {
+                Label(
+                    NSLocalizedString("settings.view_safety_notice", comment: ""),
+                    systemImage: "shield.lefthalf.filled"
+                )
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, FallGuardSpacing.s16)
+                .frame(minHeight: 34)
+            }
+            .buttonStyle(FallGuardSecondaryButtonStyle(scheme: scheme))
+
             Text("settings.copyright")
                 .font(FallGuardFont.caption2)
                 .foregroundColor(FallGuardColors.muted(for: scheme))
@@ -386,6 +597,13 @@ struct AboutPage: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showingSafetyNotice) {
+            SafetyNoticeView(
+                scheme: scheme,
+                onCancel: { showingSafetyNotice = false },
+                onAcknowledge: { showingSafetyNotice = false }
+            )
+        }
     }
 
     private func infoLine(_ key: LocalizedStringKey, _ value: String) -> some View {
@@ -434,6 +652,7 @@ struct SettingGroup<Content: View>: View {
                 .textCase(.uppercase)
 
             content()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(FallGuardSpacing.s16)
                 .glassSurface(cornerRadius: FallGuardRadius.lg)
                 .overlay(
@@ -445,6 +664,7 @@ struct SettingGroup<Content: View>: View {
                         .allowsHitTesting(false)
                 )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

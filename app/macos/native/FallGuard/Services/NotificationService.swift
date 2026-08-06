@@ -14,8 +14,10 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "Notification")
 
-    /// Set of event IDs that have already triggered a notification.
-    private var notifiedEventIDs: Set<String> = []
+    /// Set of event-phase keys that have already triggered a notification.
+    /// A pre-fall event may later become a fall while retaining the same DB ID,
+    /// so the key includes both the event ID and event type.
+    private var notifiedEventKeys: Set<String> = []
 
     /// Whether the user has granted notification permission.
     private(set) var isAuthorized: Bool = false
@@ -52,6 +54,23 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// Request permission only on first use. Existing user choices are never
+    /// re-prompted and can be changed in System Settings.
+    func requestPermissionIfNeeded() async -> Bool {
+        let settings = await UNUserNotificationCenter.current()
+            .notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            return await requestPermission()
+        case .authorized, .provisional:
+            isAuthorized = true
+            return true
+        default:
+            isAuthorized = false
+            return false
+        }
+    }
+
     /// Present a fall-detection notification.
     ///
     /// - Parameters:
@@ -62,12 +81,17 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     @discardableResult
     func notifyIfNew(eventId: String, eventType: String,
                      riskPercent: Int) -> Bool {
-        guard !notifiedEventIDs.contains(eventId) else { return false }
-        notifiedEventIDs.insert(eventId)
+        guard isAuthorized else {
+            logger.warning("Notification skipped because permission is unavailable")
+            return false
+        }
+        let eventKey = "\(eventId):\(eventType)"
+        guard !notifiedEventKeys.contains(eventKey) else { return false }
+        notifiedEventKeys.insert(eventKey)
 
         // Trim the set to prevent unbounded growth
-        if notifiedEventIDs.count > 200 {
-            notifiedEventIDs = Set(notifiedEventIDs.suffix(100))
+        if notifiedEventKeys.count > 200 {
+            notifiedEventKeys = Set(notifiedEventKeys.suffix(100))
         }
 
         let content = UNMutableNotificationContent()
@@ -87,7 +111,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         content.categoryIdentifier = "FALL_EVENT"
 
         let request = UNNotificationRequest(
-            identifier: eventId,
+            identifier: eventKey,
             content: content,
             trigger: nil  // deliver immediately
         )
@@ -99,6 +123,40 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         }
 
         logger.info("Notification sent for event \(eventId) (\(eventType))")
+        return true
+    }
+
+    /// Escalated local alert used after the response countdown expires or the
+    /// user explicitly asks for help. External contacts are intentionally not
+    /// contacted in the current product configuration.
+    @discardableResult
+    func notifyHelpNeeded(eventId: String, automatic: Bool) -> Bool {
+        guard isAuthorized else { return false }
+        let content = UNMutableNotificationContent()
+        content.title = NSLocalizedString(
+            "notification.help_needed.title", comment: ""
+        )
+        content.body = NSLocalizedString(
+            automatic
+                ? "notification.help_needed.timeout"
+                : "notification.help_needed.requested",
+            comment: ""
+        )
+        content.sound = .default
+        content.categoryIdentifier = "FALL_HELP_NEEDED"
+
+        let request = UNNotificationRequest(
+            identifier: "\(eventId):help-needed",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            if let error {
+                self?.logger.error(
+                    "Failed to deliver escalated notification: \(error.localizedDescription)"
+                )
+            }
+        }
         return true
     }
 
@@ -129,10 +187,10 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     /// Set of already-notified event IDs (for persistence across launches).
     func loadNotifiedEvents(_ ids: [String]) {
-        notifiedEventIDs = Set(ids)
+        notifiedEventKeys = Set(ids)
     }
 
     func saveNotifiedEvents() -> [String] {
-        Array(notifiedEventIDs)
+        Array(notifiedEventKeys)
     }
 }

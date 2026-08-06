@@ -50,6 +50,7 @@ struct ServiceStatus: Decodable, Equatable {
     let timestampMs: Int64
     let monitoring: Bool
     let loading: Bool
+    let activeEventId: String?
     let prediction: PredictionDTO?
     let performance: PerformanceDTO?
     let error: ServiceErrorDTO?
@@ -59,6 +60,7 @@ struct ServiceStatus: Decodable, Equatable {
         case sequence
         case timestampMs = "timestamp_ms"
         case monitoring, loading, prediction, performance, error
+        case activeEventId = "active_event_id"
     }
 }
 
@@ -174,6 +176,17 @@ struct EventDTO: Decodable, Equatable, Identifiable, Hashable {
     let startedAt: String
     let endedAt: String?
     let sessionId: String?
+    let avgRisk: Double
+    let durationSeconds: Double
+    let thumbnailPath: String?
+    let videoClipPath: String?
+    let clipFps: Double?
+    let clipDurationSeconds: Double?
+    let userFeedback: String?
+    let annotationLabel: String?
+    let prefallStartSeconds: Double?
+    let fallStartSeconds: Double?
+    let notes: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status
@@ -182,6 +195,17 @@ struct EventDTO: Decodable, Equatable, Identifiable, Hashable {
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case sessionId = "session_id"
+        case avgRisk = "avg_risk"
+        case durationSeconds = "duration_seconds"
+        case thumbnailPath = "thumbnail_path"
+        case videoClipPath = "video_clip_path"
+        case clipFps = "clip_fps"
+        case clipDurationSeconds = "clip_duration_seconds"
+        case userFeedback = "user_feedback"
+        case annotationLabel = "annotation_label"
+        case prefallStartSeconds = "prefall_start_seconds"
+        case fallStartSeconds = "fall_start_seconds"
+        case notes
     }
 }
 
@@ -299,6 +323,29 @@ struct CameraListResponse: Decodable {
 struct OkResponse: Decodable {
     let ok: Bool
     let message: String?
+}
+
+struct ClearHistoryResponse: Decodable {
+    let ok: Bool
+    let removed: [String: Int]
+}
+
+struct DatasetExportResponse: Decodable {
+    let ok: Bool
+    let outputDirectory: String
+    let annotationsPath: String
+    let videoCount: Int
+    let annotationCount: Int
+    let skippedCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case outputDirectory = "output_directory"
+        case annotationsPath = "annotations_path"
+        case videoCount = "video_count"
+        case annotationCount = "annotation_count"
+        case skippedCount = "skipped_count"
+    }
 }
 
 struct ProfileActionResponse: Decodable {

@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import Foundation
 import OSLog
@@ -19,6 +20,11 @@ enum DashboardState: Equatable {
     case importingMedia
 }
 
+enum EmergencyResponseState: Equatable {
+    case countdown(eventId: String, secondsRemaining: Int)
+    case helpNeeded(eventId: String, automatic: Bool)
+}
+
 // MARK: - App Store
 
 /// Single source of truth for the app's UI state.
@@ -36,6 +42,11 @@ final class AppStore: ObservableObject {
 
     @Published var dashboardState: DashboardState = .launchingService
     @Published var connectionError: String?
+    @Published var notificationsAuthorized: Bool = false
+    @Published var cameraPermissionDenied: Bool = false
+    @Published var showingSafetyNotice: Bool = false
+    @Published private(set) var safetyNoticeAcknowledged: Bool = false
+    @Published var emergencyResponseState: EmergencyResponseState?
 
     // Status data
     @Published var riskPercent: Int = 0
@@ -89,7 +100,14 @@ final class AppStore: ObservableObject {
 
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "AppStore")
     private var cancellables = Set<AnyCancellable>()
-    private var lastNotifiedEventId: String?
+    private var serviceStateCancellable: AnyCancellable?
+    private var lastNotifiedEventKey: String?
+    private var isRecoveringService = false
+    private var emergencyResponseTask: Task<Void, Never>?
+    private var handledEmergencyEventIds = Set<String>()
+    private var startAfterSafetyNotice = false
+    private let emergencyCountdownSeconds = 20
+    private let safetyAcknowledgementKey = "fallguard.safety_notice.v2.acknowledged"
 
     // MARK: Init
 
@@ -98,6 +116,18 @@ final class AppStore: ObservableObject {
     ///   - devToken: Token for the dev service.
     init(devPort: Int? = nil, devToken: String? = nil) {
         serviceManager = PythonServiceManager(devPort: devPort, devToken: devToken)
+        safetyNoticeAcknowledged = UserDefaults.standard.bool(
+            forKey: safetyAcknowledgementKey
+        )
+        showingSafetyNotice = !safetyNoticeAcknowledged
+        serviceStateCancellable = serviceManager.$state
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.handleServiceStateChange()
+                }
+            }
     }
 
     // MARK: Lifecycle
@@ -106,11 +136,11 @@ final class AppStore: ObservableObject {
     func bootstrap() async {
         dashboardState = .launchingService
         await serviceManager.start()
-        await handleServiceStateChange()
     }
 
     /// Called when the app is about to terminate.
     func shutdown() async {
+        emergencyResponseTask?.cancel()
         statusPoller?.stop()
         previewClient?.stop()
         previewImage = nil
@@ -126,6 +156,21 @@ final class AppStore: ObservableObject {
 
     func startMonitoring() async {
         guard let client = apiClient else { return }
+        guard safetyNoticeAcknowledged else {
+            startAfterSafetyNotice = true
+            showingSafetyNotice = true
+            return
+        }
+        let cameraStatus = await PermissionService.requestCameraPermission()
+        guard cameraStatus == .authorized else {
+            cameraPermissionDenied = true
+            connectionError = NSLocalizedString(
+                "error.camera.permission_denied", comment: ""
+            )
+            dashboardState = .serviceReadyIdle
+            return
+        }
+        cameraPermissionDenied = false
         dashboardState = .requestingCamera
         do {
             let resp = try await client.startMonitoring()
@@ -248,6 +293,108 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func updateEventFeedback(
+        id: String,
+        feedback: String,
+        notes: String,
+        annotationLabel: String? = nil,
+        prefallStartSeconds: Double? = nil,
+        fallStartSeconds: Double? = nil,
+        clipDurationSeconds: Double? = nil
+    ) async -> Bool {
+        guard let client = apiClient else { return false }
+        do {
+            let updated = try await client.updateEventFeedback(
+                id: id,
+                feedback: feedback,
+                notes: notes,
+                annotationLabel: annotationLabel,
+                prefallStartSeconds: prefallStartSeconds,
+                fallStartSeconds: fallStartSeconds,
+                clipDurationSeconds: clipDurationSeconds
+            )
+            if let index = recentEvents.firstIndex(where: { $0.id == id }) {
+                recentEvents[index] = updated
+            }
+            return true
+        } catch {
+            connectionError = error.localizedDescription
+            return false
+        }
+    }
+
+    func exportTrainingDataset(to outputDirectory: String)
+        async -> DatasetExportResponse? {
+        guard let client = apiClient else { return nil }
+        do {
+            return try await client.exportTrainingDataset(to: outputDirectory)
+        } catch {
+            connectionError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func clearHistory() async -> Bool {
+        guard let client = apiClient else { return false }
+        do {
+            let response = try await client.clearHistory()
+            guard response.ok else { return false }
+            recentEvents = []
+            sessions = []
+            totalAlerts = 0
+            highRiskEvents = 0
+            return true
+        } catch {
+            connectionError = error.localizedDescription
+            return false
+        }
+    }
+
+    func refreshNotificationAuthorization(requestIfNeeded: Bool) async {
+        notificationsAuthorized = requestIfNeeded
+            ? await notificationService.requestPermissionIfNeeded()
+            : notificationService.isAuthorized
+    }
+
+    func acknowledgeSafetyNotice() async {
+        let shouldStart = startAfterSafetyNotice
+        startAfterSafetyNotice = false
+        UserDefaults.standard.set(true, forKey: safetyAcknowledgementKey)
+        safetyNoticeAcknowledged = true
+        showingSafetyNotice = false
+        await refreshNotificationAuthorization(requestIfNeeded: true)
+        if shouldStart {
+            await startMonitoring()
+        }
+    }
+
+    func dismissSafetyNotice() {
+        startAfterSafetyNotice = false
+        showingSafetyNotice = false
+    }
+
+    func respondImOkay() async {
+        guard let eventId = activeEmergencyEventId else { return }
+        emergencyResponseTask?.cancel()
+        handledEmergencyEventIds.insert(eventId)
+        emergencyResponseState = nil
+        _ = await updateEventFeedback(
+            id: eventId,
+            feedback: "false_alarm",
+            notes: NSLocalizedString("emergency.feedback.im_okay", comment: "")
+        )
+    }
+
+    func respondNeedHelp() async {
+        guard let eventId = activeEmergencyEventId else { return }
+        await escalateEmergency(eventId: eventId, automatic: false)
+    }
+
+    func acknowledgeEmergencyHandled() {
+        emergencyResponseTask?.cancel()
+        emergencyResponseState = nil
+    }
+
     func loadSessions() async {
         guard let client = apiClient else { return }
         do {
@@ -309,6 +456,9 @@ final class AppStore: ObservableObject {
     private func handleServiceStateChange() async {
         switch serviceManager.state {
         case .ready(let baseURL, let token):
+            statusPoller?.stop()
+            previewClient?.stop()
+            cancellables.removeAll()
             let client = FallGuardAPIClient(baseURL: baseURL, token: token)
             apiClient = client
 
@@ -340,6 +490,11 @@ final class AppStore: ObservableObject {
                     } else if count == 0 {
                         self?.connectionError = nil
                     }
+                    if count >= 5 {
+                        Task { @MainActor [weak self] in
+                            await self?.recoverServiceAfterConnectionFailure()
+                        }
+                    }
                 }
                 .store(in: &cancellables)
 
@@ -360,11 +515,17 @@ final class AppStore: ObservableObject {
             await refreshCameras()
             await loadProfiles()
             await loadRecentEvents()
+            await refreshNotificationAuthorization(
+                requestIfNeeded: safetyNoticeAcknowledged
+            )
 
             dashboardState = .serviceReadyIdle
+            isRecoveringService = false
             logger.info("App store ready")
 
         case .failed(let msg):
+            statusPoller?.stop()
+            previewClient?.stop()
             dashboardState = .serviceFailed(msg)
 
         case .starting:
@@ -467,23 +628,26 @@ final class AppStore: ObservableObject {
         default: eventType = nil
         }
 
-        guard let type = eventType else {
-            lastNotifiedEventId = nil
-            return
-        }
+        guard let type = eventType,
+              let eventId = status.activeEventId else { return }
 
-        // Notify once per continuous warning/fall episode. `sequence` changes
-        // on every status poll and would otherwise create notification spam.
-        guard type != lastNotifiedEventId else { return }
-        lastNotifiedEventId = type
+        // The database ID is stable across status polls. Include the event
+        // phase so a pre-fall upgraded to a fall still produces the critical
+        // notification without allowing duplicate alerts for either phase.
+        let eventKey = "\(eventId):\(type)"
+        guard eventKey != lastNotifiedEventKey else { return }
+        lastNotifiedEventKey = eventKey
 
         notificationService.notifyIfNew(
-            eventId: type,
+            eventId: eventId,
             eventType: type,
             riskPercent: Int(round(pred.riskScore * 100))
         )
         totalAlerts += 1
         if type == "fall" { highRiskEvents += 1 }
+        if type == "fall" {
+            beginEmergencyCountdown(eventId: eventId)
+        }
     }
 
     private func handleAPIError(_ error: APIError) {
@@ -491,6 +655,118 @@ final class AppStore: ObservableObject {
     }
 
     private func handleAPIError(_ dto: ServiceErrorDTO) {
-        connectionError = dto.messageKey
+        connectionError = NSLocalizedString(dto.messageKey, comment: "")
+    }
+
+    private func recoverServiceAfterConnectionFailure() async {
+        guard !isRecoveringService else { return }
+        isRecoveringService = true
+        logger.warning("Restarting the local service after repeated connection failures")
+        await serviceManager.stop()
+        await serviceManager.start()
+    }
+
+    private var activeEmergencyEventId: String? {
+        switch emergencyResponseState {
+        case .countdown(let eventId, _):
+            return eventId
+        case .helpNeeded(let eventId, _):
+            return eventId
+        case .none:
+            return nil
+        }
+    }
+
+    private func beginEmergencyCountdown(eventId: String) {
+        guard !handledEmergencyEventIds.contains(eventId),
+              emergencyResponseState == nil else { return }
+
+        emergencyResponseTask?.cancel()
+        emergencyResponseState = .countdown(
+            eventId: eventId,
+            secondsRemaining: emergencyCountdownSeconds
+        )
+        bringMainWindowForward()
+
+        emergencyResponseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for remaining in stride(
+                from: self.emergencyCountdownSeconds - 1,
+                through: 0,
+                by: -1
+            ) {
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    return
+                }
+                guard case .countdown(let currentEventId, _) =
+                        self.emergencyResponseState,
+                      currentEventId == eventId else {
+                    return
+                }
+                if remaining == 0 {
+                    await self.escalateEmergency(
+                        eventId: eventId, automatic: true
+                    )
+                    return
+                }
+                self.emergencyResponseState = .countdown(
+                    eventId: eventId,
+                    secondsRemaining: remaining
+                )
+            }
+        }
+    }
+
+    private func escalateEmergency(eventId: String, automatic: Bool) async {
+        emergencyResponseTask?.cancel()
+        handledEmergencyEventIds.insert(eventId)
+        emergencyResponseState = .helpNeeded(
+            eventId: eventId,
+            automatic: automatic
+        )
+        bringMainWindowForward()
+        NSSound.beep()
+        notificationService.notifyHelpNeeded(
+            eventId: eventId, automatic: automatic
+        )
+        _ = await updateEventFeedback(
+            id: eventId,
+            feedback: "confirmed",
+            notes: NSLocalizedString(
+                automatic
+                    ? "emergency.feedback.timeout"
+                    : "emergency.feedback.help_requested",
+                comment: ""
+            )
+        )
+
+        // Repeat a local audible signal for 30 seconds. The visual emergency
+        // state remains until the user explicitly marks it handled.
+        emergencyResponseTask = Task { @MainActor [weak self] in
+            for _ in 0..<6 {
+                do {
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                } catch {
+                    return
+                }
+                guard let self,
+                      case .helpNeeded(let currentEventId, _) =
+                        self.emergencyResponseState,
+                      currentEventId == eventId else {
+                    return
+                }
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func bringMainWindowForward() {
+        NSApp.activate(ignoringOtherApps: true)
+        for window in NSApp.windows where window.canBecomeMain {
+            window.makeKeyAndOrderFront(nil)
+            break
+        }
     }
 }

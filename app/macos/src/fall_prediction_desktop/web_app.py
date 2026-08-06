@@ -1142,6 +1142,11 @@ class CameraMonitor:
                 "environment": snapshot.environment,
                 "error": snapshot.error,
                 "startedAt": snapshot.started_at,
+                "activeEventId": (
+                    self._event_svc.active_event_id
+                    if getattr(self, "_event_svc", None) is not None
+                    else None
+                ),
                 "activities": [
                     {
                         "level": activity.level,

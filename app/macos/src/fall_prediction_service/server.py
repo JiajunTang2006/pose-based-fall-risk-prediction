@@ -44,6 +44,8 @@ from .serialization import (
     serialize_settings,
     serialize_status,
 )
+from fall_prediction_desktop.paths import media_output_dir, user_data_dir
+from fall_prediction_desktop.dataset_export import export_reviewed_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,8 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             self._handle_activate_profile(profile_id)
         elif path == "/api/v1/imports":
             self._handle_create_import()
+        elif path == "/api/v1/dataset/export":
+            self._handle_export_dataset()
         elif path == "/api/v1/shutdown":
             self._handle_shutdown()
         else:
@@ -148,6 +152,9 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/v1/settings":
             self._handle_update_settings()
+        elif path.startswith("/api/v1/events/") and path.endswith("/feedback"):
+            event_id = path.split("/")[-2]
+            self._handle_update_event_feedback(event_id)
         elif path.startswith("/api/v1/profiles/") and not path.endswith("/activate"):
             profile_id = path.rsplit("/", 1)[-1]
             self._handle_update_profile(profile_id)
@@ -161,7 +168,9 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         if not self._check_auth():
             return
 
-        if path.startswith("/api/v1/profiles/"):
+        if path == "/api/v1/history":
+            self._handle_clear_history()
+        elif path.startswith("/api/v1/profiles/"):
             profile_id = path.rsplit("/", 1)[-1]
             self._handle_delete_profile(profile_id)
         else:
@@ -466,6 +475,136 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_error(internal_error(str(exc)))
 
+    def _handle_update_event_feedback(self, event_id: str) -> None:
+        repos = self.server._repos
+        if repos is None:
+            self._send_error(internal_error("Database not available"))
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        feedback = str(body.get("feedback", "")).strip()
+        allowed = {"confirmed", "near_fall", "normal", "false_alarm", "unsure"}
+        if feedback not in allowed:
+            self._send_error(invalid_argument("Invalid event feedback"))
+            return
+        notes = str(body.get("notes", "")).strip()
+        if len(notes) > 2000:
+            self._send_error(invalid_argument("Event notes are too long"))
+            return
+        if "annotation_label" in body:
+            annotation_label = str(body.get("annotation_label") or "").strip()
+            if annotation_label not in {"Normal", "Pre-fall", "Fall"}:
+                self._send_error(invalid_argument("Invalid annotation label"))
+                return
+            try:
+                prefall_start = (
+                    float(body["prefall_start_seconds"])
+                    if body.get("prefall_start_seconds") is not None
+                    else None
+                )
+                fall_start = (
+                    float(body["fall_start_seconds"])
+                    if body.get("fall_start_seconds") is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                self._send_error(invalid_argument("Annotation boundaries must be numbers"))
+                return
+            clip_duration = float(body.get("clip_duration_seconds") or 0.0)
+            if annotation_label in {"Pre-fall", "Fall"}:
+                if prefall_start is None or prefall_start < 0:
+                    self._send_error(invalid_argument("Pre-fall start is required"))
+                    return
+                if clip_duration > 0 and prefall_start >= clip_duration:
+                    self._send_error(invalid_argument("Pre-fall start exceeds clip duration"))
+                    return
+            else:
+                prefall_start = None
+                fall_start = None
+            if annotation_label == "Fall":
+                if fall_start is None or fall_start <= (prefall_start or 0):
+                    self._send_error(invalid_argument(
+                        "Fall start must be after Pre-fall start"
+                    ))
+                    return
+                if clip_duration > 0 and fall_start >= clip_duration:
+                    self._send_error(invalid_argument("Fall start exceeds clip duration"))
+                    return
+            else:
+                fall_start = None
+            event = repos.events.set_feedback(
+                event_id,
+                feedback,
+                notes,
+                annotation_label=annotation_label,
+                prefall_start_seconds=prefall_start,
+                fall_start_seconds=fall_start,
+            )
+        else:
+            event = repos.events.set_feedback(event_id, feedback, notes)
+        if event is None:
+            self._send_error(not_found("Event not found"))
+            return
+        self._send_json(serialize_event(event))
+
+    def _handle_export_dataset(self) -> None:
+        repos = self.server._repos
+        if repos is None:
+            self._send_error(internal_error("Database not available"))
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        destination = str(body.get("output_directory") or "").strip()
+        if not destination:
+            self._send_error(invalid_argument("Export destination is required"))
+            return
+        try:
+            result = export_reviewed_dataset(
+                repos.events.list_annotated_for_export(),
+                destination,
+            )
+        except ValueError as exc:
+            self._send_error(invalid_argument(str(exc)))
+            return
+        except OSError as exc:
+            self._send_error(internal_error(f"Could not export dataset: {exc}"))
+            return
+        self._send_json({
+            "ok": True,
+            "output_directory": str(result.output_directory),
+            "annotations_path": str(result.annotations_path),
+            "video_count": result.video_count,
+            "annotation_count": result.annotation_count,
+            "skipped_count": result.skipped_count,
+        })
+
+    def _handle_clear_history(self) -> None:
+        monitor = self.server.monitor
+        if monitor is not None:
+            snapshot = monitor.snapshot()
+            if snapshot.get("running") or snapshot.get("loading"):
+                self._send_error(invalid_argument(
+                    "Stop monitoring before clearing history"
+                ))
+                return
+        processor = self.server.media_processor
+        if processor is not None and processor.snapshot().get("running"):
+            self._send_error(invalid_argument(
+                "Wait for media import to finish before clearing history"
+            ))
+            return
+        repos = self.server._repos
+        if repos is None:
+            self._send_error(internal_error("Database not available"))
+            return
+        try:
+            removed = repos.clear_history()
+            self._send_json({"ok": True, "removed": removed})
+        except Exception as exc:
+            self._send_error(internal_error(str(exc)))
+
     # ── sessions ────────────────────────────────────────────────────
 
     def _handle_get_sessions(self, qs: dict[str, list[str]]) -> None:
@@ -530,6 +669,7 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
             suffix = p.suffix.lower()
             if suffix not in SUPPORTED_MEDIA_EXTENSIONS:
                 self._send_error(invalid_argument(f"Unsupported format: {suffix}"))
+                return
 
         processor = self.server.media_processor
         if processor is None:
@@ -584,7 +724,16 @@ class ServiceRequestHandler(BaseHTTPRequestHandler):
                 or file_path.resolve().is_relative_to(root.resolve())
                 for root in allowed_roots
             )
-            if not allowed and not file_path.is_relative_to(Path.home() / "Movies" / "FallGuard"):
+            # The user may have selected an imported file in the platform
+            # shell, but content delivery is still restricted to FallGuard's
+            # own output/data roots. Resolve before checking containment so a
+            # `..` segment or symlink cannot bypass the allow-list.
+            platform_roots = [media_output_dir(), user_data_dir() / "media"]
+            allowed = allowed or any(
+                file_path.resolve().is_relative_to(root.resolve())
+                for root in platform_roots
+            )
+            if not allowed:
                 self._send_error(internal_error("Access denied"))
                 return
 

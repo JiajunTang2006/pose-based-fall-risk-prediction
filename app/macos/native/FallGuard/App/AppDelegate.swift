@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Prevent auto-termination when the window is closed
         // (per plan §23: close window → stay in menu bar)
         NSApp.setActivationPolicy(.regular)
+        refreshLocalizedWindowChrome()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -66,7 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+        // Monitoring is designed to continue from the menu-bar item when the
+        // main window is closed. Users must choose Quit explicitly to stop it.
+        return false
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

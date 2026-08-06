@@ -75,17 +75,19 @@ final class LanguageManager: ObservableObject {
     }
 
     static var savedLanguage: String {
-        if let saved = UserDefaults.standard.string(forKey: "FallGuardSelectedLanguage") {
-            return saved == "zh" ? "zh" : "en"
-        }
-        let preferred = Locale.preferredLanguages.first ?? "en"
-        return preferred.lowercased().hasPrefix("zh") ? "zh" : "en"
+        resolvedLanguage
+    }
+
+    /// Locale used by formatters that are not driven by SwiftUI's environment.
+    ///
+    /// The application language can differ from the macOS language, so using
+    /// ``Locale.current`` here would produce mixed-language dates.
+    nonisolated static var formattingLocale: Locale {
+        Locale(identifier: resolvedLanguage == "zh" ? "zh_CN" : "en_US")
     }
 
     nonisolated static func localizedString(forKey key: String) -> String {
-        let saved = UserDefaults.standard.string(forKey: "FallGuardSelectedLanguage")
-        let preferred = saved ?? (Locale.preferredLanguages.first ?? "en")
-        let language = preferred.lowercased().hasPrefix("zh") ? "zh" : "en"
+        let language = resolvedLanguage
         guard
             let path = Bundle.main.path(forResource: language, ofType: "lproj"),
             let bundle = Bundle(path: path)
@@ -93,6 +95,12 @@ final class LanguageManager: ObservableObject {
             return Bundle.main.localizedString(forKey: key, value: key, table: nil)
         }
         return bundle.localizedString(forKey: key, value: key, table: nil)
+    }
+
+    nonisolated private static var resolvedLanguage: String {
+        let saved = UserDefaults.standard.string(forKey: "FallGuardSelectedLanguage")
+        let preferred = saved ?? (Locale.preferredLanguages.first ?? "en")
+        return preferred.lowercased().hasPrefix("zh") ? "zh" : "en"
     }
 }
 

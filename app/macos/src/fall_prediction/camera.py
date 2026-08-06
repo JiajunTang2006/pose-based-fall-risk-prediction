@@ -190,6 +190,16 @@ def _candidate_backends(cv2) -> list[tuple[int, str]]:
         avfoundation = getattr(cv2, "CAP_AVFOUNDATION", None)
         if avfoundation is not None:
             backends.append((avfoundation, "AVFoundation"))
+    elif sys.platform == "win32":
+        # DirectShow is usually the most reliable low-latency backend for
+        # consumer webcams. Media Foundation is a useful fallback for newer
+        # UVC devices; CAP_ANY remains the final OpenCV default.
+        directshow = getattr(cv2, "CAP_DSHOW", None)
+        if directshow is not None:
+            backends.append((directshow, "DirectShow"))
+        msmf = getattr(cv2, "CAP_MSMF", None)
+        if msmf is not None:
+            backends.append((msmf, "Media Foundation"))
     backends.append((getattr(cv2, "CAP_ANY", 0), "default"))
     return backends
 

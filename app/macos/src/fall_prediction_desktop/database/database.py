@@ -16,7 +16,7 @@ from typing import Generator
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseError(Exception):
@@ -61,6 +61,7 @@ class DatabaseManager:
                         f"FallGuard database schema was not found: {self._schema_path}"
                     )
                 conn.executescript(self._schema_path.read_text(encoding="utf-8"))
+                self._migrate(conn)
                 conn.commit()
                 self._initialized = True
                 logger.info("Database initialized: %s (v%d)", self._db_path, SCHEMA_VERSION)
@@ -132,6 +133,22 @@ class DatabaseManager:
         with self._lock:
             self._connections.append(conn)
         return conn
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Apply small additive migrations to databases created by older builds."""
+        event_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(events)").fetchall()
+        }
+        additions = {
+            "annotation_label": "TEXT",
+            "prefall_start_seconds": "REAL",
+            "fall_start_seconds": "REAL",
+        }
+        for name, column_type in additions.items():
+            if name not in event_columns:
+                conn.execute(f"ALTER TABLE events ADD COLUMN {name} {column_type}")
 
 
 # ── Singleton access ──────────────────────────────────────────────────

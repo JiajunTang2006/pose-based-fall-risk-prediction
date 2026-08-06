@@ -155,7 +155,13 @@ def _default_resource_root() -> Path:
     # Running from source: walk up from this file.
     here = Path(__file__).resolve().parent  # fall_prediction_service/
     for candidate in (here.parent.parent, here.parent):  # macos/, src/
-        if (candidate / "models").is_dir() and (candidate / "web").is_dir():
+        # The native shells no longer require the deleted legacy web assets.
+        # Models + configs + source are the stable source-mode markers.
+        if (
+            (candidate / "models").is_dir()
+            and (candidate / "configs").is_dir()
+            and (candidate / "src").is_dir()
+        ):
             return candidate
     return here.parent.parent  # fallback to macos/
 

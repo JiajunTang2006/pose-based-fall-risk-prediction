@@ -51,6 +51,17 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(FallGuardBackground(scheme: scheme))
+        .alert("camera.permission.title", isPresented: Binding(
+            get: { store.cameraPermissionDenied },
+            set: { store.cameraPermissionDenied = $0 }
+        )) {
+            Button("camera.permission.open_settings") {
+                PermissionService.openCameraSettings()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("error.camera.permission_denied")
+        }
     }
 
     // MARK: - Launching
@@ -882,7 +893,7 @@ struct MiniEventRow: View {
                      : NSLocalizedString("event.type.prefall", comment: ""))
                     .font(FallGuardFont.body)
                     .foregroundColor(FallGuardColors.textPrimary(for: scheme))
-                Text(event.startedAt)
+                Text(EventFormatting.displayDate(event.startedAt))
                     .font(FallGuardFont.caption2)
                     .foregroundColor(FallGuardColors.muted(for: scheme))
             }

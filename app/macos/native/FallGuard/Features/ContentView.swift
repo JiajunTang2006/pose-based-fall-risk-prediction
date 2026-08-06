@@ -74,6 +74,28 @@ struct ContentView: View {
             .background(FallGuardBackground(scheme: scheme))
         }
         .background(FallGuardBackground(scheme: scheme))
+        .overlay {
+            if let response = store.emergencyResponseState {
+                EmergencyResponseOverlay(
+                    response: response,
+                    scheme: scheme
+                )
+                .environmentObject(store)
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { store.showingSafetyNotice },
+            set: { store.showingSafetyNotice = $0 }
+        )) {
+            SafetyNoticeView(
+                scheme: scheme,
+                onCancel: { store.dismissSafetyNotice() },
+                onAcknowledge: {
+                    Task { await store.acknowledgeSafetyNotice() }
+                }
+            )
+                .interactiveDismissDisabled()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .fallGuardNavigateToImport)) { _ in
             selectedTab = .importMedia
         }
@@ -131,7 +153,7 @@ struct ContentView: View {
                         Image(systemName: "person.circle.fill")
                             .font(.title3)
                             .foregroundColor(FallGuardColors.muted(for: scheme))
-                        Text(store.activeProfile?.name ?? NSLocalizedString("profile.default", comment: ""))
+                        Text(activeProfileDisplayName)
                             .font(FallGuardFont.body)
                             .fontWeight(.medium)
                             .foregroundColor(FallGuardColors.textPrimary(for: scheme))
@@ -154,19 +176,6 @@ struct ContentView: View {
                 .buttonStyle(.plain)
 
                 settingsControl
-
-                // Status indicator
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(connectionColor)
-                        .frame(width: 8, height: 8)
-                    Text(connectionText)
-                        .font(FallGuardFont.caption2)
-                        .foregroundColor(FallGuardColors.textSecondary(for: scheme))
-                    Spacer()
-                }
-                .padding(.horizontal, FallGuardSpacing.s14)
-                .padding(.top, FallGuardSpacing.s4)
             }
             .padding(.horizontal, FallGuardSpacing.s12)
             .padding(.bottom, FallGuardSpacing.s16)
@@ -239,30 +248,32 @@ struct ContentView: View {
 
             Spacer()
 
-            HStack(spacing: FallGuardSpacing.s8) {
-                if store.isMonitoring {
-                    Button {
-                        Task { await store.stopMonitoring() }
-                    } label: {
-                        Label(NSLocalizedString("button.stop", comment: ""),
-                              systemImage: "stop.fill")
-                            .font(FallGuardFont.callout)
-                            .padding(.horizontal, FallGuardSpacing.s14)
-                            .padding(.vertical, 7)
+            if selectedTab != .dashboard {
+                HStack(spacing: FallGuardSpacing.s8) {
+                    if store.isMonitoring {
+                        Button {
+                            Task { await store.stopMonitoring() }
+                        } label: {
+                            Label(NSLocalizedString("button.stop", comment: ""),
+                                  systemImage: "stop.fill")
+                                .font(FallGuardFont.callout)
+                                .padding(.horizontal, FallGuardSpacing.s14)
+                                .padding(.vertical, 7)
+                        }
+                        .buttonStyle(FallGuardDangerButtonStyle(scheme: scheme))
+                    } else if !store.isImporting {
+                        Button {
+                            Task { await store.startMonitoring() }
+                        } label: {
+                            Label(NSLocalizedString("button.start", comment: ""),
+                                  systemImage: "play.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .padding(.horizontal, FallGuardSpacing.s14)
+                                .padding(.vertical, 7)
+                        }
+                        .buttonStyle(FallGuardButtonStyle(scheme: scheme))
+                        .disabled(!store.serviceManager.state.isReady)
                     }
-                    .buttonStyle(FallGuardDangerButtonStyle(scheme: scheme))
-                } else if !store.isImporting {
-                    Button {
-                        Task { await store.startMonitoring() }
-                    } label: {
-                        Label(NSLocalizedString("button.start", comment: ""),
-                              systemImage: "play.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .padding(.horizontal, FallGuardSpacing.s14)
-                            .padding(.vertical, 7)
-                    }
-                    .buttonStyle(FallGuardButtonStyle(scheme: scheme))
-                    .disabled(!store.serviceManager.state.isReady)
                 }
             }
         }
@@ -308,10 +319,179 @@ struct ContentView: View {
         return store.serviceManager.state.displayText
     }
 
+    private var activeProfileDisplayName: String {
+        guard let name = store.activeProfile?.name else {
+            return NSLocalizedString("profile.default", comment: "")
+        }
+        return name == "Default"
+            ? NSLocalizedString("profile.default", comment: "")
+            : name
+    }
+
     private var connectionBg: Color {
         if store.connectionError != nil { return FallGuardColors.redLight }
         if store.serviceManager.state.isReady { return FallGuardColors.greenLight }
         return FallGuardColors.amberLight
+    }
+}
+
+// MARK: - Safety & Emergency Overlays
+
+struct SafetyNoticeView: View {
+    let scheme: ColorScheme
+    let onCancel: () -> Void
+    let onAcknowledge: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: FallGuardSpacing.s20) {
+            HStack(spacing: FallGuardSpacing.s12) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 34))
+                    .foregroundColor(FallGuardColors.primary(for: scheme))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(NSLocalizedString("safety.title", comment: ""))
+                        .font(FallGuardFont.title2)
+                    Text(NSLocalizedString("safety.subtitle", comment: ""))
+                        .font(FallGuardFont.body)
+                        .foregroundColor(FallGuardColors.textSecondary(for: scheme))
+                }
+            }
+
+            safetyRow("cross.case", "safety.not_medical")
+            safetyRow("phone.badge.waveform", "safety.not_emergency_service")
+            safetyRow("video", "safety.camera_local")
+            safetyRow("checkmark.seal", "safety.test_regularly")
+
+            Text(NSLocalizedString("safety.consent", comment: ""))
+                .font(FallGuardFont.caption)
+                .foregroundColor(FallGuardColors.textSecondary(for: scheme))
+
+            HStack {
+                Button(NSLocalizedString("cancel", comment: "")) {
+                    onCancel()
+                }
+                Spacer()
+                Button(action: onAcknowledge) {
+                    HStack(spacing: FallGuardSpacing.s8) {
+                        Image(systemName: "checkmark")
+                        Text(NSLocalizedString("safety.acknowledge", comment: ""))
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, FallGuardSpacing.s16)
+                    .frame(minWidth: 126, minHeight: 36)
+                }
+                .buttonStyle(FallGuardButtonStyle(scheme: scheme))
+            }
+        }
+        .padding(FallGuardSpacing.s24)
+        .frame(width: 560)
+        .background(FallGuardBackground(scheme: scheme))
+    }
+
+    private func safetyRow(_ icon: String, _ key: String) -> some View {
+        HStack(alignment: .top, spacing: FallGuardSpacing.s12) {
+            Image(systemName: icon)
+                .frame(width: 24)
+                .foregroundColor(FallGuardColors.primary(for: scheme))
+            Text(NSLocalizedString(key, comment: ""))
+                .font(FallGuardFont.body)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct EmergencyResponseOverlay: View {
+    @EnvironmentObject private var store: AppStore
+    let response: EmergencyResponseState
+    let scheme: ColorScheme
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.48)
+                .ignoresSafeArea()
+
+            VStack(spacing: FallGuardSpacing.s20) {
+                Image(systemName: icon)
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundColor(FallGuardColors.red)
+
+                Text(title)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
+
+                switch response {
+                case .countdown(_, let secondsRemaining):
+                    Text("\(secondsRemaining)")
+                        .font(.system(size: 64, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(FallGuardColors.red)
+                        .accessibilityLabel(
+                            Text(String(
+                                format: NSLocalizedString(
+                                    "emergency.countdown.accessibility", comment: ""
+                                ),
+                                secondsRemaining
+                            ))
+                        )
+
+                    Text("emergency.countdown.detail")
+                        .font(FallGuardFont.body)
+                        .foregroundColor(FallGuardColors.textSecondary(for: scheme))
+                        .multilineTextAlignment(.center)
+
+                    HStack(spacing: FallGuardSpacing.s16) {
+                        Button("emergency.im_okay") {
+                            Task { await store.respondImOkay() }
+                        }
+                        .buttonStyle(FallGuardSecondaryButtonStyle(scheme: scheme))
+
+                        Button("emergency.need_help") {
+                            Task { await store.respondNeedHelp() }
+                        }
+                        .buttonStyle(FallGuardDangerButtonStyle(scheme: scheme))
+                    }
+
+                case .helpNeeded(_, let automatic):
+                    Text(automatic
+                         ? "emergency.help.timeout_detail"
+                         : "emergency.help.requested_detail")
+                        .font(FallGuardFont.body)
+                        .foregroundColor(FallGuardColors.textSecondary(for: scheme))
+                        .multilineTextAlignment(.center)
+
+                    Button("emergency.handled") {
+                        store.acknowledgeEmergencyHandled()
+                    }
+                    .buttonStyle(FallGuardDangerButtonStyle(scheme: scheme))
+                }
+            }
+            .padding(FallGuardSpacing.s32)
+            .frame(maxWidth: 520)
+            .background(
+                RoundedRectangle(cornerRadius: FallGuardRadius.xl)
+                    .fill(FallGuardColors.surface(for: scheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: FallGuardRadius.xl)
+                    .stroke(FallGuardColors.red.opacity(0.5), lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.28), radius: 28, y: 12)
+        }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private var icon: String {
+        switch response {
+        case .countdown: return "exclamationmark.triangle.fill"
+        case .helpNeeded: return "bell.and.waves.left.and.right.fill"
+        }
+    }
+
+    private var title: LocalizedStringKey {
+        switch response {
+        case .countdown: return "emergency.countdown.title"
+        case .helpNeeded: return "emergency.help.title"
+        }
     }
 }
 

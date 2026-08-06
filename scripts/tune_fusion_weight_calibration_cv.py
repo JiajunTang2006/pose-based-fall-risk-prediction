@@ -1,5 +1,3 @@
-"""Nested grouped CV for fusion class weight and probability calibration."""
-
 from __future__ import annotations
 
 import argparse

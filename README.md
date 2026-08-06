@@ -1,120 +1,228 @@
-# Fall Prediction 最终可复现版本
+<div align="center">
 
-本目录只保留当前 FallGuard 使用的最终链路：
+# Pose-Based Fall Risk Prediction
 
-1. YOLO-pose 从视频帧提取 17 个 COCO 人体关键点。
-2. HistGradientBoosting 树模型负责正式确认 Normal / Pre-fall / Fall。
-3. ST-GCN + TCN 骨架融合模型负责辅助与提前预警。
-4. HMM、双模型决策和静态躺姿规则负责时序稳定与 ADL 后处理。
+**A cooperative tree and skeleton-feature fusion system for confirmed fall detection and early warning**
 
-## 最终数据与模型
+![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Grouped evaluation](https://img.shields.io/badge/evaluation-grouped%205--fold-6F42C1)
+![Algorithm tests](https://img.shields.io/badge/algorithm%20tests-104%20passed-2EA44F)
+![macOS tests](https://img.shields.io/badge/macOS%20tests-106%20passed-2EA44F)
 
-- 原始数据：data/videos
-- 最终三分类标注：data/ur_up_train_drop60f_15pct_annotations.csv
-- 最终特征：outputs/features
-- 最终骨架关键点：outputs/landmarks_upperbody
-- 姿态模型：models/yolo26n-pose.pt
-- 正式树模型：models/yolo_tail60_prefall_accel_robust_classifier.joblib
-- 辅助融合模型：models/skeleton_feature_fusion_tuned.pt
-- 五折融合模型：models/cross_validation_tuned/fold_*_selected_full_outer.pt
-- 最终五折报告：reports/dual_model_tuned_static_lying_postprocess_5fold_cv.json
+[Results](#results) · [Reproduction](#reproduction) · [Runtime inference](#runtime-inference) · [macOS app](#macos-app) · [Full report](reports/fall_prediction_final_report.pdf)
 
-数据规模为 4,714 个 15 帧窗口、117 条摄像机序列、93 个独立试验组。
+</div>
 
-## 建立环境
+> [!IMPORTANT]
+> This repository is a research prototype. It has not been clinically validated and must not be used as the sole component of a safety-critical monitoring system.
 
-推荐使用 Python 3.11。requirements-lock.txt 保存了生成最终结果时的完整版本。
+## Overview
 
-~~~
-python3.11 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -r requirements-lock.txt
-~~~
+The project predicts three states—**Normal**, **Pre-fall**, and **Fall**—from monocular video. YOLO Pose extracts 17 COCO keypoints, which are converted into 15-frame temporal windows with a stride of 3. Two complementary models then cooperate:
 
-## 一键验证最终结果
+- **HistGradientBoosting** uses engineered motion and geometry features to provide the authoritative confirmed state.
+- **ST-GCN + causal TCN fusion** combines skeleton dynamics with temporal features to improve early-warning sensitivity.
+- **HMM smoothing, cooperative decision rules, and static-lying ADL filtering** stabilize the final outputs.
 
-~~~
-./scripts/reproduce_final_result.sh
-~~~
+The runtime exposes two channels: a precision-oriented **final confirmed** state and a recall-oriented **early warning** advisory.
 
-脚本会执行以下检查：
+![System overview](figures/readme/system_overview.svg)
 
-- 验证最终模型、折模型、标注和报告的 SHA-256。
-- 使用保留的 5 个折模型重新训练每折树模型并生成完整折外预测。
-- 将新报告与最终参考报告逐字节比较。
+## Results
 
-加入自动测试：
+The final evaluation uses grouped five-fold cross-validation. Camera views belonging to the same UP-Fall trial remain in the same outer fold to reduce view leakage. All values below are mean ± standard deviation across the five outer folds.
 
-~~~
-./scripts/reproduce_final_result.sh --with-tests
-~~~
-
-预期最终五折均值：
-
-| 输出层 | Accuracy | Macro F1 | Pre-fall Precision | Pre-fall Recall | Fall Recall |
+| Output | Accuracy | Macro F1 | Pre-fall precision | Pre-fall recall | Fall recall |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 正式确认 + 躺姿后处理 | 91.83% | 85.71% | 77.19% | 65.96% | 95.06% |
-| 提前预警 + 躺姿后处理 | 89.60% | 83.73% | 57.42% | 81.40% | 95.06% |
+| Tree classifier | 90.32 ± 1.77% | 84.19 ± 2.71% | 76.95 ± 1.55% | 66.67 ± 8.36% | 83.62 ± 6.16% |
+| Fusion + HMM | 88.59 ± 2.65% | 83.12 ± 2.96% | 59.34 ± 3.14% | **85.23 ± 8.47%** | 82.82 ± 5.05% |
+| **Final confirmed** | **91.83 ± 2.59%** | **85.71 ± 2.34%** | **77.19 ± 1.59%** | 65.96 ± 7.96% | **95.06 ± 3.37%** |
+| **Early warning** | 89.60 ± 2.68% | 83.73 ± 2.21% | 57.42 ± 2.75% | 81.40 ± 8.54% | **95.06 ± 3.37%** |
 
-事件级结果：78 条 Fall 摄像机序列中检出 76 条；39 条非 Fall 序列中，正式确认通道有 5 条出现过错误 Fall。
+![Window-level performance](figures/readme/window_performance.svg)
 
-## 重新训练正式树模型
+The cooperative system improves confirmed Fall recall by 11.44 percentage points over the tree model while retaining the strongest overall accuracy and Macro F1. The early-warning channel recovers substantially more Pre-fall windows, with the expected reduction in Pre-fall precision.
 
-~~~
-.venv/bin/python -m fall_prediction.train_model \
-  --input-dir outputs/features \
-  --output models/yolo_tail60_prefall_accel_robust_classifier.joblib \
-  --metrics-output reports/yolo_tail60_prefall_accel_robust_metrics.json \
-  --label-mode annotations \
-  --annotations data/ur_up_train_drop60f_15pct_annotations.csv \
-  --window-size 15 \
-  --stride 3 \
-  --classifier hist_gradient_boosting \
-  --test-size 0 \
-  --prefall-weight 8.0 \
-  --prefall-alert-threshold 0.06 \
-  --use-accel \
-  --use-standing-calibration \
-  --partial-pose-augmentation
-~~~
+### Confusion matrices
 
-## 从头重新完成融合模型五折调优
+The matrices aggregate out-of-fold predictions across all 4,714 windows. Each cell shows the sample count and row-normalized percentage.
 
-此过程会重新生成临时候选模型，耗时明显长于验证最终报告。
+![Pooled confusion matrices](figures/readme/confusion_matrices.svg)
 
-~~~
-.venv/bin/python scripts/cross_validate_fusion.py \
+### Sequence-level behavior
+
+Both deployed outputs detect Fall in **76 of 78 Fall sequences (97.44%)**. On 39 non-Fall sequences, the final confirmed channel produces any warning in 9 sequences and a false Fall in 5; the early-warning channel warns in 24 sequences and produces a false Fall in 6.
+
+![Sequence-level trade-off](figures/readme/sequence_tradeoff.svg)
+
+<sub>The sequence chart intentionally uses a restricted detection-rate axis so the differences remain visible; exact values are printed beside each point.</sub>
+
+## Data and evaluation protocol
+
+The reported experiments combine UR Fall and UP-Fall material into grouped temporal windows.
+
+| Item | Value |
+| --- | ---: |
+| Labeled windows | 4,714 |
+| Frames per window | 15 |
+| Window stride | 3 frames |
+| Camera sequences | 117 |
+| Independent video/trial groups | 93 |
+| Normal | 3,007 (63.79%) |
+| Fall | 1,287 (27.30%) |
+| Pre-fall | 420 (8.91%) |
+| Evaluation | Grouped 5-fold cross-validation |
+| Random seed | 42 |
+
+The raw videos and generated feature exports are not included in Git because of dataset distribution constraints and repository size. Users must obtain the datasets under their applicable terms and place the media under `data/videos/` before running extraction.
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `fall_prediction/` | Pose processing, feature extraction, models, training, and runtime inference |
+| `scripts/` | Cross-validation, tuning, evaluation, and final-result verification |
+| `data/` | Versioned interval annotations and review metadata |
+| `models/` | Final tree, fusion, pose, and fold-specific model artifacts |
+| `reports/` | Machine-readable evaluation results and the final PDF report |
+| `figures/` | Reproducible README figures and their generation source |
+| `tests/` | Algorithm unit tests |
+| `app/macos/` | Native SwiftUI application and local Python service |
+
+## Requirements
+
+The reference environment uses **Python 3.11**. The package supports Python 3.10–3.12, but exact-result verification should use the locked Python 3.11 environment.
+
+Key recorded versions include NumPy 2.4.6, SciPy 1.17.1, scikit-learn 1.9.0, joblib 1.5.3, PyTorch 2.12.1, Matplotlib 3.11.0, OpenCV 4.13.0.92, and pytest 9.1.1. Inference runs on CPU by default; a GPU is not required for verification.
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-lock.txt
+```
+
+For a smaller editable development environment:
+
+```bash
+python -m pip install -e ".[yolo,deep,dev]"
+```
+
+## Reproduction
+
+Reproducibility is split into three levels because raw videos and generated features are intentionally not versioned.
+
+### 1. Verify the checkout
+
+The tracked tests and final artifact hashes can be verified without the raw datasets:
+
+```bash
+python -m pytest -q
+shasum -a 256 -c FINAL_ARTIFACTS.sha256
+```
+
+Expected result: **104 tests pass**, and every tracked final artifact reports `OK`.
+
+### 2. Regenerate the final evaluation report
+
+Byte-for-byte regeneration additionally requires the feature CSV files produced during preprocessing under `outputs/features/`. With those files available:
+
+```bash
+./scripts/reproduce_final_result.sh --with-tests
+```
+
+The script verifies all checksums, retrains the tree branch for each preserved outer fold, regenerates the out-of-fold predictions, and compares the new JSON report with `reports/dual_model_tuned_static_lying_postprocess_5fold_cv.json`.
+
+### 3. Reproduce from raw videos
+
+Place user-supplied UR Fall and UP-Fall media under `data/videos/`, then export features with the same pose model:
+
+```bash
+python -m fall_prediction.export_dataset_features \
+  --input-dir data/videos/urfall \
+  --output-dir outputs/features/urfall_yolo \
+  --pose-backend yolo \
+  --yolo-model models/yolo26n-pose.pt
+
+python -m fall_prediction.export_dataset_features \
+  --input-dir data/videos/upfall \
+  --output-dir outputs/features/upfall_yolo \
+  --pose-backend yolo \
+  --yolo-model models/yolo26n-pose.pt
+```
+
+Use `data/ur_up_train_drop60f_15pct_annotations.csv` for the final interval labels. Dataset-specific file naming and camera pairing must match the annotation keys before the grouped evaluation can be regenerated.
+
+<details>
+<summary><strong>Full fusion cross-validation and tuning pipeline</strong></summary>
+
+This procedure retrains temporary candidates and is substantially slower than verifying the preserved fold models.
+
+```bash
+python scripts/cross_validate_fusion.py \
   --input-dir outputs/features \
   --annotations data/ur_up_train_drop60f_15pct_annotations.csv \
   --output reports/fusion_grouped_5fold_cv.json
 
-.venv/bin/python scripts/retrain_cv_full_outer.py \
+python scripts/retrain_cv_full_outer.py \
   --source-report reports/fusion_grouped_5fold_cv.json \
   --input-dir outputs/features \
   --annotations data/ur_up_train_drop60f_15pct_annotations.csv \
   --output reports/fusion_grouped_5fold_cv_full_outer.json
 
-.venv/bin/python scripts/tune_fusion_weight_calibration_cv.py \
+python scripts/tune_fusion_weight_calibration_cv.py \
   --source-report reports/fusion_grouped_5fold_cv_full_outer.json \
   --input-dir outputs/features \
   --annotations data/ur_up_train_drop60f_15pct_annotations.csv \
   --no-resume
 
 ./scripts/reproduce_final_result.sh
-~~~
+```
 
-## 实时运行
+</details>
 
-~~~
-.venv/bin/python -m fall_prediction \
+## Runtime inference
+
+Run the cooperative model on a camera, video, or image-sequence directory:
+
+```bash
+python -m fall_prediction \
   --source 0 \
   --pose-backend yolo \
   --yolo-model models/yolo26n-pose.pt \
-  --predictor dual \
+  --predictor ensemble \
   --classifier-model models/yolo_tail60_prefall_accel_robust_classifier.joblib \
   --fusion-model models/skeleton_feature_fusion_tuned.pt \
   --use-accel \
   --show
-~~~
+```
 
-静态躺姿的 Normal 修正仍然属于运行时后处理，不会改写模型训练标签。
+Replace `0` with a video path or image directory when a live camera is not required. Static-lying ADL correction is a runtime postprocessing rule and does not rewrite training labels.
+
+## macOS app
+
+`app/macos/` contains a local-first SwiftUI client backed by an authenticated Python service bound to `127.0.0.1`. It supports live camera monitoring, imported-media analysis, event history, local notifications, and packaged `.app` builds.
+
+See the [macOS application guide](app/macos/README.md) for setup, architecture, tests, and packaging instructions.
+
+## Limitations
+
+- Results are grouped cross-validation estimates, not performance on a separate untouched external test set.
+- Evaluation is limited to the supplied UR Fall and UP-Fall material; generalization to new rooms, cameras, activities, and populations is unverified.
+- Sliding windows overlap, although grouping prevents the same video/trial group from crossing outer folds.
+- Pre-fall boundaries are inherently uncertain and depend on the annotation protocol.
+- Cooperative postprocessing was developed on the available project data and should be validated prospectively.
+- End-to-end latency, resource usage, clinical utility, and real-world alert burden have not been benchmarked.
+
+## Report and machine-readable evidence
+
+- [Final experimental report (PDF)](reports/fall_prediction_final_report.pdf)
+- [Final grouped five-fold results (JSON)](reports/dual_model_tuned_static_lying_postprocess_5fold_cv.json)
+- [Full outer-fold fusion report (JSON)](reports/fusion_grouped_5fold_cv_full_outer.json)
+- [Figure generation source](figures/source/generate_readme_figures.py)
+
+The README figures are regenerated directly from the final JSON report:
+
+```bash
+python figures/source/generate_readme_figures.py
+```

@@ -1,17 +1,9 @@
-"""
-Stable error codes for the FallGuard AI Service API.
-
-Every error response uses the same envelope so Swift can map codes to
-localised messages without parsing free-form text.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import Any
 
-# ── error code constants ────────────────────────────────────────────
 
 UNAUTHORIZED = "UNAUTHORIZED"
 SERVICE_NOT_READY = "SERVICE_NOT_READY"
@@ -26,7 +18,6 @@ DATABASE_ERROR = "DATABASE_ERROR"
 INTERNAL_ERROR = "INTERNAL_ERROR"
 NOT_FOUND = "NOT_FOUND"
 
-# ── code → HTTP status mapping ──────────────────────────────────────
 
 _CODE_STATUS: dict[str, HTTPStatus] = {
     UNAUTHORIZED: HTTPStatus.UNAUTHORIZED,
@@ -46,7 +37,6 @@ _CODE_STATUS: dict[str, HTTPStatus] = {
 
 @dataclass
 class ServiceError:
-    """Stable error representation for API responses."""
 
     code: str
     message_key: str
@@ -66,8 +56,6 @@ class ServiceError:
     def http_status(self) -> HTTPStatus:
         return _CODE_STATUS.get(self.code, HTTPStatus.INTERNAL_SERVER_ERROR)
 
-
-# ── convenience constructors ────────────────────────────────────────
 
 def unauthorized(details: Any = None) -> ServiceError:
     return ServiceError(UNAUTHORIZED, "error.auth.unauthorized", details=details)

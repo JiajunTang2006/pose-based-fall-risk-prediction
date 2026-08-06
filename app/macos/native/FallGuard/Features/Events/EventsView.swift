@@ -1,7 +1,5 @@
 import SwiftUI
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Events 分组；布局代码无需修改。
-/// Events list with type/status filtering.
 struct EventsView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
@@ -34,7 +32,6 @@ struct EventsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
                 Text("events.title")
                     .font(FallGuardFont.title)
@@ -52,7 +49,6 @@ struct EventsView: View {
             .padding(.top, FallGuardSpacing.s20)
             .padding(.bottom, FallGuardSpacing.s12)
 
-            // Filter bar — glass header
             HStack(spacing: FallGuardSpacing.s12) {
                 Picker("", selection: $filterType) {
                     ForEach(EventFilter.allCases, id: \.self) { f in
@@ -79,7 +75,6 @@ struct EventsView: View {
             GlassDivider()
                 .padding(.horizontal, FallGuardSpacing.s24)
 
-            // List
             if store.recentEvents.isEmpty {
                 Spacer()
                 VStack(spacing: FallGuardSpacing.s12) {
@@ -112,7 +107,6 @@ struct EventsView: View {
                 .listStyle(.plain)
             }
 
-            // Status bar
             HStack {
                 Text(String(format: NSLocalizedString("events.count", comment: ""),
                            filteredEvents.count))
@@ -157,8 +151,6 @@ struct EventsView: View {
     }
 }
 
-// MARK: - Event List Row
-
 struct EventListRow: View {
     let event: EventDTO
     let scheme: ColorScheme
@@ -169,12 +161,10 @@ struct EventListRow: View {
 
     var body: some View {
         HStack(spacing: FallGuardSpacing.s12) {
-            // Colored status bar
             RoundedRectangle(cornerRadius: 2)
                 .fill(dotColor)
                 .frame(width: 4, height: 40)
 
-            // Icon
             Image(systemName: event.eventType == "fall"
                   ? "exclamationmark.triangle.fill"
                   : "exclamationmark.circle.fill")
@@ -182,7 +172,6 @@ struct EventListRow: View {
                 .foregroundColor(dotColor)
                 .frame(width: 28)
 
-            // Info
             VStack(alignment: .leading, spacing: 3) {
                 Text(event.eventType == "fall"
                      ? NSLocalizedString("event.type.fall", comment: "")
@@ -212,7 +201,6 @@ struct EventListRow: View {
 
             Spacer()
 
-            // Risk badge
             VStack(alignment: .trailing, spacing: 4) {
                 Text("\(Int(round(event.peakRisk * 100)))%")
                     .font(.system(.callout, design: .rounded).bold())
@@ -238,8 +226,6 @@ struct EventListRow: View {
         .padding(.horizontal, FallGuardSpacing.s4)
     }
 }
-
-// MARK: - Event Detail
 
 enum EventFormatting {
     private static let isoWithFractional: ISO8601DateFormatter = {

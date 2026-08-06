@@ -2,9 +2,6 @@ import Foundation
 import OSLog
 import Darwin
 
-// MARK: - Service State
-
-/// Observable process lifecycle state for the Python AI service.
 enum PythonServiceState: Equatable {
     case stopped
     case starting
@@ -28,23 +25,10 @@ enum PythonServiceState: Equatable {
     }
 }
 
-// MARK: - Service Manager
-
-/// Manages the Python AI service subprocess lifecycle.
-///
-/// Responsibilities:
-/// - Locate and launch the ``fallguard-ai`` executable
-/// - Parse the ``ready`` JSON line from stdout
-/// - Health-check the service before declaring it ready
-/// - Handle crashes, timeouts, and clean shutdown
 @MainActor
 final class PythonServiceManager: ObservableObject {
 
-    // MARK: Published state
-
     @Published private(set) var state: PythonServiceState = .stopped
-
-    // MARK: Private
 
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "ServiceManager")
     private var process: Process?
@@ -56,37 +40,24 @@ final class PythonServiceManager: ObservableObject {
     private var shortLivedCrashCount = 0
     private var lastReadyAt: Date?
 
-    /// Maximum seconds to wait for the ``ready`` line from the child process.
     private let startupTimeout: TimeInterval = 20.0
 
-    /// Port for connecting to an externally-managed dev service (debug mode).
     private let devPort: Int?
     private let devToken: String?
 
-    // MARK: Init
-
-    /// - Parameters:
-    ///   - devPort: If non-nil, connect to an already-running service
-    ///     instead of launching a child process (development mode).
-    ///   - devToken: The Bearer token for the dev service.
     init(devPort: Int? = nil, devToken: String? = nil) {
         self.devPort = devPort
         self.devToken = devToken
     }
 
     deinit {
-        // Best-effort cleanup — never block deinit.
         let p = process
         Task.detached { [p] in
             p?.terminate()
         }
     }
 
-    // MARK: Public API
-
-    /// Launch the Python AI service and wait for its ``ready`` handshake.
     func start() async {
-        // Guard: already running or in transition
         switch state {
         case .stopped, .failed:
             break
@@ -95,7 +66,6 @@ final class PythonServiceManager: ObservableObject {
             return
         }
 
-        // Development mode: connect to an externally-launched service
         if let port = devPort, let token = devToken {
             await connectToDevService(port: port, token: token)
             return
@@ -117,7 +87,6 @@ final class PythonServiceManager: ObservableObject {
                 proc.standardOutput = stdout
                 proc.standardError = stderr
 
-                // Drain stderr asynchronously so the pipe never fills up.
                 let stderrHandle = stderr.fileHandleForReading
                 stderrHandle.readabilityHandler = { [weak self] handle in
                     let data = handle.availableData
@@ -135,7 +104,6 @@ final class PythonServiceManager: ObservableObject {
                 stderrPipe = stderr
                 stderrReadHandle = stderrHandle
 
-                // Wait for the ready line with timeout
                 let ready = try await readReadyLine(from: stdout, timeout: startupTimeout)
 
                 guard ready.event == "ready" else {
@@ -145,10 +113,8 @@ final class PythonServiceManager: ObservableObject {
                 let baseURL = URL(string: "http://127.0.0.1:\(ready.port)/api/v1")!
                 logger.info("Service ready on port \(ready.port)")
 
-                // Verify health before declaring ready
                 try await verifyHealth(baseURL: baseURL, token: ready.token)
 
-                // Watch for unexpected termination
                 proc.terminationHandler = { [weak self] proc in
                     Task { @MainActor [weak self] in
                         self?.handleTermination(status: proc.terminationStatus, reason: proc.terminationReason)
@@ -172,7 +138,6 @@ final class PythonServiceManager: ObservableObject {
         startTask = nil
     }
 
-    /// Gracefully stop the service: POST /shutdown, then terminate.
     func stop() async {
         automaticRestartTask?.cancel()
         automaticRestartTask = nil
@@ -188,7 +153,6 @@ final class PythonServiceManager: ObservableObject {
         state = .stopping
         logger.info("Shutting down Python service...")
 
-        // Try graceful shutdown first
         let shutdownURL = baseURL.appendingPathComponent("shutdown")
         var req = URLRequest(url: shutdownURL)
         req.httpMethod = "POST"
@@ -201,16 +165,12 @@ final class PythonServiceManager: ObservableObject {
             logger.debug("Graceful shutdown request failed (will force-terminate): \(error.localizedDescription)")
         }
 
-        // Give graceful cleanup time to release AVFoundation/OpenCV, then
-        // escalate to SIGTERM/SIGKILL and wait until the child is gone.
         if devPort == nil {
             await terminateProcessAndWait()
         }
         state = .stopped
         logger.info("Service state → stopped")
     }
-
-    // MARK: Private — dev mode
 
     private func connectToDevService(port: Int, token: String) async {
         guard let baseURL = URL(string: "http://127.0.0.1:\(port)/api/v1") else {
@@ -226,11 +186,7 @@ final class PythonServiceManager: ObservableObject {
         }
     }
 
-    // MARK: Private — process lifecycle
-
-    /// Find the ``fallguard-ai`` executable.
     private func locateServiceExecutable() throws -> URL {
-        // 1. Check env override
         if let envPath = ProcessInfo.processInfo.environment["FALLGUARD_AI_EXECUTABLE"] {
             let url = URL(fileURLWithPath: envPath)
             _ = envPath  // used above
@@ -240,7 +196,6 @@ final class PythonServiceManager: ObservableObject {
             return url
         }
 
-        // 2. Look inside the app bundle Resources/AIService/
         if let bundlePath = Bundle.main.resourcePath {
             let bundleExec = URL(fileURLWithPath: bundlePath)
                 .appendingPathComponent("AIService")
@@ -250,15 +205,11 @@ final class PythonServiceManager: ObservableObject {
             }
         }
 
-        // 3. Fallback: look for the Python module in the project tree
         let pythonPath = URL(fileURLWithPath: "/usr/bin/env")
-        // Use `python3 -m fall_prediction_service` as fallback
         return pythonPath
     }
 
-    /// Return suitable arguments for the Python service.
     private func serviceArguments(port: Int = 0) -> [String] {
-        // Check if we're using the bundled executable vs python -m
         if ProcessInfo.processInfo.environment["FALLGUARD_AI_EXECUTABLE"] != nil {
             return [
                 "--host", "127.0.0.1", "--port", "\(port)",
@@ -274,7 +225,6 @@ final class PythonServiceManager: ObservableObject {
                 ]
             }
         }
-        // Source-mode fallback: python3 -m fall_prediction_service
         return [
             "-m", "fall_prediction_service",
             "--host", "127.0.0.1",
@@ -283,7 +233,6 @@ final class PythonServiceManager: ObservableObject {
         ]
     }
 
-    /// Read the first complete JSON line from the subprocess's stdout.
     private func readReadyLine(from stdout: Pipe, timeout: TimeInterval) async throws -> ReadyMessage {
         let handle = stdout.fileHandleForReading
         let deadline = Date().addingTimeInterval(timeout)
@@ -291,10 +240,8 @@ final class PythonServiceManager: ObservableObject {
         var buffer = Data()
 
         while Date() < deadline {
-            // Check cancellation
             try Task.checkCancellation()
 
-            // Poll for available data
             let available = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
                 DispatchQueue.global().async {
                     let data = handle.availableData
@@ -303,13 +250,11 @@ final class PythonServiceManager: ObservableObject {
             }
 
             guard !available.isEmpty else {
-                // EOF before ready line
                 throw ServiceError.processExitedEarly
             }
 
             buffer.append(available)
 
-            // Try to extract a complete line
             while let newlineRange = buffer.range(of: Data([0x0A])) {  // '\n'
                 let lineData = buffer.subdata(in: 0..<newlineRange.lowerBound)
                 buffer.removeSubrange(0...newlineRange.lowerBound)
@@ -319,23 +264,17 @@ final class PythonServiceManager: ObservableObject {
                     continue
                 }
 
-                // Try to parse as ReadyMessage
                 if let ready = try? JSONDecoder().decode(ReadyMessage.self, from: Data(line.utf8)) {
                     return ready
                 }
-                // Otherwise it's a log line → ignore (stderr vs stdout separation handles this)
             }
 
-            // Brief sleep to avoid busy-waiting
             try await Task.sleep(nanoseconds: 50_000_000) // 50 ms
         }
 
         throw ServiceError.startupTimeout
     }
 
-    /// Call GET /health once to verify the service is reachable.
-    /// Accepts all health states (``starting``, ``ready``, ``degraded``) —
-    /// the UI will poll for status updates and show progress.
     private func verifyHealth(baseURL: URL, token: String) async throws {
         let healthURL = baseURL.appendingPathComponent("health")
         var req = URLRequest(url: healthURL)
@@ -365,11 +304,9 @@ final class PythonServiceManager: ObservableObject {
         throw ServiceError.healthCheckFailed(reason: "Service did not become ready")
     }
 
-    /// Called when the subprocess exits unexpectedly.
     private func handleTermination(status: Int32, reason: Process.TerminationReason) {
         logger.warning("Python process exited (status=\(status), reason=\(reason.rawValue))")
 
-        // Only react if we're not already stopping/stopped
         switch state {
         case .starting:
             state = .failed(message: NSLocalizedString(
@@ -408,12 +345,10 @@ final class PythonServiceManager: ObservableObject {
         }
     }
 
-    /// Force-kill the subprocess if it's still running.
     private func terminateProcessIfNeeded() {
         guard let proc = process, proc.isRunning else { return }
         stderrReadHandle?.readabilityHandler = nil
         proc.terminate()
-        // Give it a moment, then kill
         DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
             if proc.isRunning {
                 proc.interrupt()  // SIGINT
@@ -434,7 +369,6 @@ final class PythonServiceManager: ObservableObject {
 
         stderrReadHandle?.readabilityHandler = nil
 
-        // The shutdown endpoint normally exits the service by itself.
         await waitForExit(proc, timeout: 3.0)
         if proc.isRunning {
             proc.terminate()
@@ -463,8 +397,6 @@ final class PythonServiceManager: ObservableObject {
         process = nil
     }
 }
-
-// MARK: - Service Errors
 
 enum ServiceError: LocalizedError {
     case executableNotFound(path: String)

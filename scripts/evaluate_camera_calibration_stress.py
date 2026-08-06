@@ -1,5 +1,3 @@
-"""Numerically verify standing calibration under synthetic 2-D camera changes."""
-
 from __future__ import annotations
 
 import argparse

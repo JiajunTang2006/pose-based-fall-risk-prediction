@@ -1,5 +1,3 @@
-"""Simple manager for FallGuard-owned imported and event media."""
-
 from __future__ import annotations
 
 import subprocess

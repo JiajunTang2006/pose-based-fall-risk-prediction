@@ -2,8 +2,6 @@ import AppKit
 import SwiftUI
 import OSLog
 
-/// NSApplicationDelegate — handles menu bar, app lifecycle,
-/// and system-level events that SwiftUI cannot manage alone.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -11,8 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     private var terminationInProgress = false
 
-    /// Reference to the AppStore for lifecycle coordination.
-    /// Set by the App's ``init()`` through the environment.
     weak var store: AppStore?
 
     func attach(store: AppStore) {
@@ -23,8 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController?.setup()
     }
 
-    // MARK: NSApplicationDelegate
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("FallGuard did finish launching")
         NotificationCenter.default.addObserver(
@@ -34,14 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // Set up menu bar
         if let store {
             menuBarController = MenuBarController(store: store)
             menuBarController?.setup()
         }
 
-        // Prevent auto-termination when the window is closed
-        // (per plan §23: close window → stay in menu bar)
         NSApp.setActivationPolicy(.regular)
         refreshLocalizedWindowChrome()
     }
@@ -67,13 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Monitoring is designed to continue from the menu-bar item when the
-        // main window is closed. Users must choose Quit explicitly to stop it.
         return false
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // When the dock icon is clicked, show the main window if hidden
         if !flag {
             for window in NSApp.windows where window.canBecomeMain {
                 window.makeKeyAndOrderFront(nil)
@@ -101,8 +89,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         refreshLocalizedMainMenu()
-        // SwiftUI may rebuild the command menu during the same update pass.
-        // Apply the localized titles once more after that pass completes.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.refreshLocalizedMainMenu()
         }
@@ -119,12 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: Menu Bar Setup
-
     func setupMainMenu() {
         let mainMenu = NSMenu()
 
-        // App menu
         let appMenu = NSMenu()
         let aboutItem = NSMenuItem(
             title: String(format: NSLocalizedString("menu.about_format", comment: ""), "FallGuard"),
@@ -153,7 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
-        // File menu
         let fileMenu = NSMenu(title: NSLocalizedString("menu.file", comment: ""))
 
         let startItem = NSMenuItem(
@@ -186,7 +168,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
-        // View menu
         let viewMenu = NSMenu(title: NSLocalizedString("menu.view", comment: ""))
         let toggleSidebarItem = NSMenuItem(
             title: NSLocalizedString("menu.toggle_sidebar", comment: ""),
@@ -200,7 +181,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
-        // Window menu
         let windowMenu = NSMenu(title: NSLocalizedString("menu.window", comment: ""))
         windowMenu.addItem(NSMenuItem(
             title: NSLocalizedString("menu.show_main_window", comment: ""),
@@ -214,8 +194,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = mainMenu
     }
-
-    // MARK: Actions
 
     @objc private func startMonitoringAction() {
         Task { @MainActor [weak store] in

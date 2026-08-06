@@ -1,5 +1,3 @@
-"""Tests for stable contract DTOs and serialization."""
-
 import unittest
 
 from fall_prediction_service.contracts import (

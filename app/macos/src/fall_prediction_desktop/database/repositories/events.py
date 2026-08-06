@@ -1,10 +1,3 @@
-"""
-Repository for the ``events`` table — business-level fall/pre-fall detection events.
-
-Each event represents a continuous risk episode (not a single frame).
-The state machine is responsible for creating, updating, and closing events.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -14,7 +7,6 @@ from ..database import DatabaseManager
 
 
 class EventsRepository:
-    """Manage the lifecycle of fall/pre-fall detection events."""
 
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
@@ -41,7 +33,6 @@ class EventsRepository:
         return dict(row) if row else None
 
     def get_open_for_session(self, session_id: str) -> dict | None:
-        """Return the currently-open event for a session, if any."""
         row = self._db.get_connection().execute(
             "SELECT * FROM events WHERE session_id = ? AND status = 'open' "
             "ORDER BY started_at DESC LIMIT 1",
@@ -57,7 +48,6 @@ class EventsRepository:
         self._db.get_connection().commit()
 
     def update_type(self, event_id: str, event_type: str) -> None:
-        """Update the event type (e.g. pre-fall → fall upgrade)."""
         self._db.get_connection().execute(
             "UPDATE events SET event_type = ? WHERE id = ?",
             (event_type, event_id),
@@ -144,7 +134,6 @@ class EventsRepository:
         return [dict(r) for r in rows]
 
     def list_annotated_for_export(self) -> list[dict]:
-        """Return human-confirmed clips containing Pre-fall or Fall."""
         rows = self._db.get_connection().execute(
             f"{self._event_select()} "
             "WHERE e.annotation_label IN ('Pre-fall', 'Fall') "
@@ -167,7 +156,6 @@ class EventsRepository:
         return cur.rowcount > 0
 
     def delete_all(self) -> None:
-        """Clear all events (for 'Clear History')."""
         self._db.get_connection().execute("DELETE FROM events")
         self._db.get_connection().commit()
 

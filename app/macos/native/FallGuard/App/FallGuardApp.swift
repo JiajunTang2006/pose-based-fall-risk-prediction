@@ -2,11 +2,6 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-// macOS 顶部系统菜单文案：Resources/*/Localizable.strings 中的 Menu 分组。
-/// Main entry point for the FallGuard SwiftUI application.
-///
-/// The app uses a single ``AppStore`` as the source of truth, which is
-/// passed through the view hierarchy via ``.environmentObject()``.
 @main
 struct FallGuardApp: App {
 
@@ -16,7 +11,6 @@ struct FallGuardApp: App {
     @StateObject private var languageManager = LanguageManager()
 
     init() {
-        // Check for dev-mode env vars
         let devPortStr = ProcessInfo.processInfo.environment["FALLGUARD_DEV_PORT"]
         let devPort = devPortStr.flatMap(Int.init)
         let devToken = ProcessInfo.processInfo.environment["FALLGUARD_DEV_TOKEN"]
@@ -41,14 +35,12 @@ struct FallGuardApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            // Replace default About with our own
             CommandGroup(replacing: .appInfo) {
                 Button(NSLocalizedString("menu.about", comment: "")) {
                     NSApplication.shared.orderFrontStandardAboutPanel(nil)
                 }
             }
 
-            // App-level commands
             CommandGroup(after: .newItem) {
                 Divider()
                 Button(NSLocalizedString("menu.start_monitoring", comment: "")) {
@@ -64,7 +56,6 @@ struct FallGuardApp: App {
                 .disabled(!store.isMonitoring)
             }
 
-            // Help
             CommandGroup(replacing: .help) {
                 Button(NSLocalizedString("menu.export_logs", comment: "")) {
                     Task { await exportLogs() }
@@ -116,10 +107,6 @@ struct FallGuardApp: App {
         }
     }
 
-    /// Make the window chrome transparent so the shared ambient gradient
-    /// (``FallGuardBackground``) shows straight through the title-bar strip.
-    /// This removes the grey seam at the top and keeps the whole window one
-    /// continuous colour, matching the content beneath the toolbar.
     private func configureWindow() {
         DispatchQueue.main.async {
             guard let window = NSApplication.shared.windows.first(where: {

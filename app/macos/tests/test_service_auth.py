@@ -1,5 +1,3 @@
-"""Tests for the Bearer-token authentication module."""
-
 import unittest
 
 from fall_prediction_service.auth import validate_token
@@ -33,7 +31,6 @@ class TestAuth(unittest.TestCase):
         )
 
     def test_lowercase_bearer_rejected(self):
-        # The prefix is case-sensitive: "Bearer " not "bearer "
         self.assertFalse(validate_token("bearer my-secret-token-123", self.token))
 
     def test_token_with_special_chars(self):

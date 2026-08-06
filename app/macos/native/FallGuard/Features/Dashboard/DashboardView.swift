@@ -1,26 +1,6 @@
 import SwiftUI
 import AppKit
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Dashboard、Dashboard Cards、
-// Risk Levels、Status、Metrics、States 分组；布局代码无需修改。
-// MARK: - Dashboard View
-
-/// Main monitoring dashboard with 6-card layout inspired by MD3.
-///
-/// Layout (monitoring state):
-/// ```
-/// ┌──────────────────────┐ ┌──────────┐ ┌──────────┐
-/// │   Monitor Card        │ │ RiskRing │ │ Status   │
-/// │   (video preview)    │ │  (gauge) │ │  Card    │
-/// └──────────────────────┘ └──────────┘ └──────────┘
-/// ┌──────────────┐ ┌──────────┐
-/// │ Risk Trend   │ │ Events   │
-/// │ Chart        │ │ MiniList │
-/// └──────────────┘ └──────────┘
-/// ┌──────────────────────────────────────────────┐
-/// │              Metrics Bar                      │
-/// └──────────────────────────────────────────────┘
-/// ```
 struct DashboardView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var themeManager: ThemeManager
@@ -64,8 +44,6 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Launching
-
     private var launchingView: some View {
         VStack(spacing: FallGuardSpacing.s20) {
             ProgressView()
@@ -77,8 +55,6 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(FallGuardBackground(scheme: scheme))
     }
-
-    // MARK: - Error
 
     private func errorView(message: String, canRetry: Bool) -> some View {
         VStack(spacing: FallGuardSpacing.s24) {
@@ -103,8 +79,6 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(FallGuardBackground(scheme: scheme))
     }
-
-    // MARK: - Idle
 
     private var idleView: some View {
         VStack {
@@ -167,8 +141,6 @@ struct DashboardView: View {
         .background(FallGuardBackground(scheme: scheme))
     }
 
-    // MARK: - Loading
-
     private func loadingView(message: String) -> some View {
         VStack(spacing: FallGuardSpacing.s20) {
             ProgressView()
@@ -181,12 +153,9 @@ struct DashboardView: View {
         .background(FallGuardBackground(scheme: scheme))
     }
 
-    // MARK: - Monitoring Grid
-
     private var monitoringGridView: some View {
         ScrollView {
             VStack(spacing: FallGuardSpacing.s16) {
-                // Top row: Monitor | RiskRing | Status
                 HStack(alignment: .top, spacing: FallGuardSpacing.s16) {
                     MonitorCard(scheme: scheme)
                         .layoutPriority(2)
@@ -198,7 +167,6 @@ struct DashboardView: View {
                     .frame(width: 280)
                 }
 
-                // Middle row: RiskTrend | EventsMini
                 HStack(alignment: .top, spacing: FallGuardSpacing.s16) {
                     RiskTrendChart(scheme: scheme)
                         .layoutPriority(1)
@@ -206,15 +174,12 @@ struct DashboardView: View {
                         .frame(width: 280)
                 }
 
-                // Bottom row: Metrics
                 MetricsBar(scheme: scheme)
             }
             .padding(FallGuardSpacing.s16)
         }
         .background(FallGuardBackground(scheme: scheme))
     }
-
-    // MARK: - Importing
 
     private var importingView: some View {
         VStack(spacing: FallGuardSpacing.s20) {
@@ -238,13 +203,6 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Card Container
-
-/// Reusable card with frosted-glass MD3 styling.
-///
-/// When ``glass`` is `true` (default), the card background uses
-/// `.regularMaterial` to blur content behind it, creating the
-/// classic macOS layered-depth look.
 struct FallGuardCard<Content: View>: View {
     let scheme: ColorScheme
     var glass: Bool = true
@@ -294,8 +252,6 @@ struct FallGuardCard<Content: View>: View {
     }
 }
 
-// MARK: - Monitor Card
-
 struct MonitorCard: View {
     @EnvironmentObject var store: AppStore
     let scheme: ColorScheme
@@ -303,7 +259,6 @@ struct MonitorCard: View {
     var body: some View {
         FallGuardCard(scheme: scheme) {
             VStack(spacing: 0) {
-                // Header
                 HStack {
                     Text("dashboard.live_monitor")
                         .font(FallGuardFont.headline)
@@ -314,12 +269,10 @@ struct MonitorCard: View {
                 .padding(.horizontal, FallGuardSpacing.s16)
                 .padding(.vertical, FallGuardSpacing.s12)
 
-                // Video Preview
                 videoShell
                     .padding(.horizontal, FallGuardSpacing.s12)
                     .padding(.bottom, FallGuardSpacing.s12)
 
-                // Action buttons
                 HStack(spacing: FallGuardSpacing.s12) {
                     if store.isMonitoring {
                         Button(action: { Task { await store.stopMonitoring() } }) {
@@ -363,15 +316,11 @@ struct MonitorCard: View {
         }
     }
 
-    // MARK: Video Shell
-
     private var videoShell: some View {
         ZStack {
-            // Dark background
             RoundedRectangle(cornerRadius: FallGuardRadius.lg)
                 .fill(FallGuardColors.videoBg)
 
-            // Preview image or placeholder
             if let img = store.previewImage {
                 Image(nsImage: img)
                     .resizable()
@@ -397,10 +346,8 @@ struct MonitorCard: View {
                 }
             }
 
-            // Overlays
             VStack {
                 HStack {
-                    // REC badge
                     if store.isMonitoring {
                         HStack(spacing: 6) {
                             Circle()
@@ -424,7 +371,6 @@ struct MonitorCard: View {
                 }
                 Spacer()
                 HStack {
-                    // FPS
                     FpsChip()
                     Spacer()
                 }
@@ -447,8 +393,6 @@ struct MonitorCard: View {
     }
 }
 
-// MARK: - FPS Chip
-
 struct FpsChip: View {
     @EnvironmentObject var store: AppStore
 
@@ -467,8 +411,6 @@ struct FpsChip: View {
     }
 }
 
-// MARK: - Pulse Animation
-
 struct PulseAnimation: ViewModifier {
     @State private var opacity: Double = 1.0
 
@@ -482,8 +424,6 @@ struct PulseAnimation: ViewModifier {
             }
     }
 }
-
-// MARK: - Sensitivity Badge
 
 struct SensitivityBadge: View {
     @EnvironmentObject var store: AppStore
@@ -502,8 +442,6 @@ struct SensitivityBadge: View {
         }
     }
 }
-
-// MARK: - Risk Ring View
 
 struct RiskRingView: View {
     @EnvironmentObject var store: AppStore
@@ -536,14 +474,11 @@ struct RiskRingView: View {
                     .padding(.horizontal, FallGuardSpacing.s16)
                     .padding(.top, FallGuardSpacing.s12)
 
-                // Risk Ring
                 ZStack {
-                    // Track
                     Circle()
                         .stroke(FallGuardColors.line(for: scheme), lineWidth: 12)
                         .frame(width: 130, height: 130)
 
-                    // Colored arc
                     Circle()
                         .trim(from: 0, to: riskPercent)
                         .stroke(riskColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
@@ -551,7 +486,6 @@ struct RiskRingView: View {
                         .rotationEffect(.degrees(-90))
                         .animation(.easeInOut(duration: FallGuardAnimation.normal), value: riskPercent)
 
-                    // Center text
                     VStack(spacing: 2) {
                         Text("\(store.riskPercent)%")
                             .font(FallGuardFont.hero)
@@ -565,7 +499,6 @@ struct RiskRingView: View {
                 }
                 .padding(.vertical, FallGuardSpacing.s4)
 
-                // Risk level text
                 Text(store.modelState.displayName)
                     .font(FallGuardFont.caption)
                     .fontWeight(.semibold)
@@ -579,8 +512,6 @@ struct RiskRingView: View {
         }
     }
 }
-
-// MARK: - Status Card
 
 struct StatusCardView: View {
     @EnvironmentObject var store: AppStore
@@ -616,7 +547,6 @@ struct StatusCardView: View {
                     .padding(.horizontal, FallGuardSpacing.s16)
                     .padding(.top, FallGuardSpacing.s12)
 
-                // Hero banner
                 HStack(spacing: FallGuardSpacing.s12) {
                     Image(systemName: heroIcon)
                         .font(.title2)
@@ -637,7 +567,6 @@ struct StatusCardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: FallGuardRadius.md))
                 .padding(.horizontal, FallGuardSpacing.s12)
 
-                // Status rows
                 VStack(spacing: 0) {
                     StatusRow(icon: "web.camera", label: "status.camera",
                               value: store.isMonitoring ? "status.connected" : "status.idle",
@@ -688,8 +617,6 @@ struct StatusCardView: View {
     }
 }
 
-// MARK: - Status Row
-
 struct StatusRow: View {
     let icon: String
     let label: LocalizedStringKey
@@ -719,8 +646,6 @@ struct StatusRow: View {
         .padding(.vertical, FallGuardSpacing.s8)
     }
 }
-
-// MARK: - Risk Trend Chart (Canvas)
 
 struct RiskTrendChart: View {
     @EnvironmentObject var store: AppStore
@@ -766,7 +691,6 @@ struct RiskTrendChart: View {
                         let xStep = chartW / CGFloat(max(values.count - 1, 1))
                         let yMax = chartH / 100.0  // 0–100 scale
 
-                        // Grid lines
                         for i in 0...4 {
                             let y = 12 + chartH * CGFloat(i) / 4
                             var path = Path()
@@ -777,7 +701,6 @@ struct RiskTrendChart: View {
                                 lineWidth: 0.5)
                         }
 
-                        // Build points
                         let points = values.enumerated().map { i, v in
                             CGPoint(
                                 x: 16 + CGFloat(i) * xStep,
@@ -785,7 +708,6 @@ struct RiskTrendChart: View {
                             )
                         }
 
-                        // Fill area
                         var fillPath = Path()
                         fillPath.move(to: CGPoint(x: 16, y: 12 + chartH))
                         for pt in points {
@@ -796,7 +718,6 @@ struct RiskTrendChart: View {
                         context.fill(fillPath,
                             with: .color(riskColor.opacity(0.14)))
 
-                        // Line
                         var linePath = Path()
                         linePath.move(to: points[0])
                         for pt in points.dropFirst() {
@@ -806,14 +727,12 @@ struct RiskTrendChart: View {
                             with: .color(riskColor),
                             style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
 
-                        // End dot
                         if let last = points.last {
                             context.fill(
                                 Path(ellipseIn: CGRect(x: last.x - 3, y: last.y - 3, width: 6, height: 6)),
                                 with: .color(riskColor))
                         }
 
-                        // Labels
                         context.draw(
                             Text("-60s")
                                 .font(.system(size: 9))
@@ -833,8 +752,6 @@ struct RiskTrendChart: View {
         }
     }
 }
-
-// MARK: - Events Mini List
 
 struct EventsMiniList: View {
     @EnvironmentObject var store: AppStore
@@ -907,8 +824,6 @@ struct MiniEventRow: View {
         .padding(.vertical, FallGuardSpacing.s12)
     }
 }
-
-// MARK: - Metrics Bar
 
 struct MetricsBar: View {
     @EnvironmentObject var store: AppStore
@@ -985,8 +900,6 @@ struct MetricItem: View {
         .frame(maxWidth: .infinity)
     }
 }
-
-// MARK: - Button Styles
 
 struct FallGuardButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
@@ -1065,5 +978,3 @@ struct FallGuardSecondaryButtonStyle: ButtonStyle {
             .animation(.easeInOut(duration: FallGuardAnimation.fast), value: configuration.isPressed)
     }
 }
-
-// (no helpers needed currently)

@@ -15,7 +15,7 @@ Python 子进程负责摄像头、YOLO、风险判断、SQLite 和媒体处理�
 
 ```bash
 # 1. 进入应用目录
-cd apps/macos
+cd app/macos
 
 # 2. 创建虚拟环境并安装
 python3.11 -m venv .venv

@@ -1,8 +1,3 @@
-"""
-Reusable custom PySide6 widgets — M3 design language.
-Full i18n coverage via t() from .i18n.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,31 +9,22 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from .i18n import t
 except ImportError:
     from fall_prediction_desktop.ui.i18n import t  # type: ignore[no-redef]
 
-# 8px grid
 S4, S8, S12, S16, S20, S24, S28, S32 = 4, 8, 12, 16, 20, 24, 28, 32
 
 
-# ── Card ───────────────────────────────────────────────────────────
-
 class Card(QFrame):
-    """M3 elevated card: surface_bright background + outline_variant border."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setProperty("class", "Card")
 
 
-# ── Risk Ring ──────────────────────────────────────────────────────
-
 class RiskRing(QWidget):
-    """Circular risk gauge with colored arc."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -61,19 +47,16 @@ class RiskRing(QWidget):
         ring_w = 12
         outer = min(w, h) / 2 - 4
 
-        # Track (full ring)
         pen = QPen(self._track, ring_w, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         p.setPen(pen)
         p.drawArc(QRectF(cx - outer, cy - outer, outer * 2, outer * 2), 0, 360 * 16)
 
-        # Colored arc
         if self._percent > 0:
             pen.setColor(self._color)
             p.setPen(pen)
             span = int(-self._percent / 100 * 360 * 16)
             p.drawArc(QRectF(cx - outer, cy - outer, outer * 2, outer * 2), 90 * 16, span)
 
-        # Percent
         font = QFont()
         font.setPixelSize(40)
         font.setWeight(QFont.Weight.Bold)
@@ -82,7 +65,6 @@ class RiskRing(QWidget):
         p.drawText(QRectF(0, cy - 30, w, 44), Qt.AlignmentFlag.AlignCenter,
                    f"{self._percent}{t('common.percent', '%')}")
 
-        # Subtitle
         font.setPixelSize(12)
         font.setWeight(QFont.Weight.Normal)
         p.setFont(font)
@@ -93,10 +75,7 @@ class RiskRing(QWidget):
         p.end()
 
 
-# ── Activity Row ────────────────────────────────────────────────────
-
 class ActivityRow(QFrame):
-    """Single activity item with colored indicator dot."""
 
     _LEVELS = {
         "normal":  ("#34A853", "#E6F4EA"),
@@ -138,10 +117,7 @@ class ActivityRow(QFrame):
         layout.addWidget(risk_lbl)
 
 
-# ── Connection Pill ─────────────────────────────────────────────────
-
 class ConnectionPill(QFrame):
-    """Status pill: green/gray dot + label with border."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -183,10 +159,7 @@ class ConnectionPill(QFrame):
         self._text.setText(text)
 
 
-# ── Monitoring Tag ──────────────────────────────────────────────────
-
 class MonitoringTag(QFrame):
-    """M3 status chip: Active / Idle / Warning / Critical with border."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -215,10 +188,7 @@ class MonitoringTag(QFrame):
         )
 
 
-# ── Video Shell ─────────────────────────────────────────────────────
-
 class VideoShell(QFrame):
-    """Live camera feed that fills the whole rounded preview surface."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -330,10 +300,7 @@ class VideoShell(QFrame):
         self._layout_children()
 
 
-# ── Sidebar ─────────────────────────────────────────────────────────
-
 class Sidebar(QFrame):
-    """Dashboard + Settings sidebar for the desktop shell."""
 
     def __init__(self, assets_dir: Path | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -354,7 +321,6 @@ class Sidebar(QFrame):
         layout.setContentsMargins(S20, S28, S20, S20)
         layout.setSpacing(0)
 
-        # Brand with logo
         brand = QHBoxLayout()
         brand.setSpacing(S16)
 
@@ -445,7 +411,6 @@ class Sidebar(QFrame):
         self._content.setVisible(width > 0)
 
     def refresh_labels(self) -> None:
-        """Re-translate all sidebar labels after a language switch."""
         self._brand_title.setText(t("brand.name", "FallGuard"))
         self._brand_sub.setText(t("sidebar.aiFallDetection", "AI fall detection"))
         self._nav_btn.setText(f"  {t('sidebar.navDashboard', 'Dashboard')}")

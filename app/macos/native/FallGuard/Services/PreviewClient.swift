@@ -2,14 +2,6 @@ import AppKit
 import Foundation
 import OSLog
 
-/// Fetches single JPEG frames from the Python service for real-time preview.
-///
-/// Design (per the migration plan):
-/// - Poll single JPEG frames (not full MJPEG parsing) for simplicity
-/// - 8–12 fps when monitoring + window visible
-/// - Stop downloading when window is hidden
-/// - At most one in-flight request; skip if slow
-/// - Decode on background thread, publish on main
 @MainActor
 final class PreviewClient: ObservableObject {
 
@@ -22,7 +14,6 @@ final class PreviewClient: ObservableObject {
     private var task: Task<Void, Never>?
     private var isFetching = false
 
-    /// Target interval between frames (seconds).  10 fps = 0.1 s.
     private let frameInterval: TimeInterval = 0.10
 
     init(client: FallGuardAPIClient) {
@@ -44,13 +35,11 @@ final class PreviewClient: ObservableObject {
 
     private func fetchLoop() async {
         while !Task.isCancelled {
-            // Pause when not needed
             guard isMonitoring && isWindowVisible else {
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 s
                 continue
             }
 
-            // Skip if previous request is still in flight
             guard !isFetching else {
                 try? await Task.sleep(nanoseconds: 20_000_000) // 20 ms
                 continue
@@ -62,8 +51,6 @@ final class PreviewClient: ObservableObject {
             do {
                 let data = try await client.latestFrame()
 
-                // NSImage is not Sendable before macOS 14. Construct it on the
-                // main actor to keep the macOS 12 deployment target warning-free.
                 if let img = NSImage(data: data) {
                     currentImage = img
                 }
@@ -73,7 +60,6 @@ final class PreviewClient: ObservableObject {
 
             isFetching = false
 
-            // Maintain target frame rate
             let elapsed = CFAbsoluteTimeGetCurrent() - start
             let sleepTime = frameInterval - elapsed
             if sleepTime > 0 {

@@ -1,15 +1,3 @@
-"""
-FallGuard AI Service — headless entry point.
-
-Start the service::
-
-    python -m fall_prediction_service --port 0 --data-dir /tmp/fallguard-dev
-
-The service prints a single ``ready`` JSON line to stdout and then listens for
-HTTP requests on ``127.0.0.1`` until it receives SIGTERM, SIGINT, or a
-``POST /api/v1/shutdown`` request.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -76,7 +64,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    # ── resolve paths ───────────────────────────────────────────────
     if args.resource_root:
         resource_root = Path(args.resource_root).expanduser().resolve()
     else:
@@ -85,18 +72,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.data_dir:
         data_dir = Path(args.data_dir).expanduser().resolve()
     else:
-        # Preserve the legacy Movies/FallGuard database when present; new
-        # installations use Application Support through default_data_dir().
         from fall_prediction_desktop.database.init_db import default_data_dir
         data_dir = default_data_dir(resource_root)
 
-    # Set env so sub-modules also use the correct data dir
     os.environ.setdefault("FALLGUARD_DATA_DIR", str(data_dir))
 
-    # ── token ───────────────────────────────────────────────────────
     token = args.token or secrets.token_urlsafe(32)
 
-    # ── host validation ─────────────────────────────────────────────
     host = args.host
     if host not in {"127.0.0.1", "localhost", "::1"}:
         parser.error("--host must be a loopback address (127.0.0.1, localhost, or ::1)")
@@ -104,7 +86,6 @@ def main(argv: list[str] | None = None) -> None:
     if args.debug:
         logging.basicConfig(level=logging.DEBUG, stream=sys.stderr)
 
-    # ── create service ──────────────────────────────────────────────
     service = create_service(
         host=host,
         port=args.port,
@@ -117,7 +98,6 @@ def main(argv: list[str] | None = None) -> None:
 
     actual_port = service.server_address[1]
 
-    # ── print ready line (MUST be the first stdout line) ────────────
     ready_msg = json.dumps({
         "event": "ready",
         "port": actual_port,
@@ -127,14 +107,12 @@ def main(argv: list[str] | None = None) -> None:
     })
     print(ready_msg, flush=True)
 
-    # ── signal handlers ─────────────────────────────────────────────
     lifecycle = service.lifecycle
     install_signal_handlers(lifecycle)
     lifecycle.start_watchdog()
 
     logger.info("Listening on %s:%s (api=%s)", host, actual_port, API_VERSION)
 
-    # ── serve ───────────────────────────────────────────────────────
     try:
         service.serve_forever()
     except KeyboardInterrupt:
@@ -146,24 +124,19 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _default_resource_root() -> Path:
-    """Best-guess the resource root (models/, configs/, etc.)."""
-    # Inside a PyInstaller bundle, _MEIPASS is the Resources dir.
     bundle_root = getattr(sys, "_MEIPASS", None)
     if bundle_root:
         return Path(bundle_root)
 
-    # Running from source: walk up from this file.
-    here = Path(__file__).resolve().parent  # fall_prediction_service/
-    for candidate in (here.parent.parent, here.parent):  # macos/, src/
-        # The native shells no longer require the deleted legacy web assets.
-        # Models + configs + source are the stable source-mode markers.
+    here = Path(__file__).resolve().parent
+    for candidate in (here.parent.parent, here.parent):
         if (
             (candidate / "models").is_dir()
             and (candidate / "configs").is_dir()
             and (candidate / "src").is_dir()
         ):
             return candidate
-    return here.parent.parent  # fallback to macos/
+    return here.parent.parent
 
 
 if __name__ == "__main__":

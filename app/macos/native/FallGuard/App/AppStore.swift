@@ -4,9 +4,6 @@ import Combine
 import Foundation
 import OSLog
 
-// MARK: - Dashboard UI State
-
-/// All possible UI states for the Dashboard (per plan §17.7).
 enum DashboardState: Equatable {
     case launchingService
     case serviceFailed(String)
@@ -25,20 +22,8 @@ enum EmergencyResponseState: Equatable {
     case helpNeeded(eventId: String, automatic: Bool)
 }
 
-// MARK: - App Store
-
-/// Single source of truth for the app's UI state.
-///
-/// Owns the service layer and coordinates between the Python service,
-/// API client, status poller, and preview client.  All published properties
-/// are updated on the main actor.
-///
-/// Uses ``ObservableObject`` / ``@Published`` for macOS 11 compatibility
-/// (rather than the iOS 17+ ``@Observable`` macro).
 @MainActor
 final class AppStore: ObservableObject {
-
-    // MARK: Published state
 
     @Published var dashboardState: DashboardState = .launchingService
     @Published var connectionError: String?
@@ -48,7 +33,6 @@ final class AppStore: ObservableObject {
     @Published private(set) var safetyNoticeAcknowledged: Bool = false
     @Published var emergencyResponseState: EmergencyResponseState?
 
-    // Status data
     @Published var riskPercent: Int = 0
     @Published var riskScore: Double = 0
     @Published var confidencePercent: Int = 0
@@ -60,43 +44,33 @@ final class AppStore: ObservableObject {
     @Published var isLoading: Bool = true
     @Published var personVisible: Bool = true
 
-    // Settings
     @Published var settings: ServiceSettings?
     @Published var cameras: [Int] = [0]
     @Published var currentCameraIndex: Int = 0
 
-    // Profiles
     @Published var profiles: [ProfileDTO] = []
     @Published var activeProfileId: String?
     @Published var activeProfile: ProfileDTO?
 
-    // Events
     @Published var recentEvents: [EventDTO] = []
     @Published var sessions: [SessionDTO] = []
 
-    // Import
     @Published var importJob: ImportJobDTO?
     @Published var isImporting: Bool = false
 
-    // Preview
     @Published var previewImage: NSImage?
 
-    // Risk history for trend chart (last 48 values)
     @Published var riskHistory: [Int] = []
     @Published var monitoringStartTime: Date?
     @Published var totalAlerts: Int = 0
     @Published var highRiskEvents: Int = 0
     private let maxRiskHistory = 48
 
-    // MARK: Service layer
-
     let serviceManager: PythonServiceManager
     private(set) var apiClient: FallGuardAPIClient?
     private(set) var statusPoller: StatusPoller?
     private(set) var previewClient: PreviewClient?
     let notificationService = NotificationService()
-
-    // MARK: Internal
 
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "AppStore")
     private var cancellables = Set<AnyCancellable>()
@@ -109,11 +83,6 @@ final class AppStore: ObservableObject {
     private let emergencyCountdownSeconds = 20
     private let safetyAcknowledgementKey = "fallguard.safety_notice.v2.acknowledged"
 
-    // MARK: Init
-
-    /// - Parameters:
-    ///   - devPort: Non-nil to connect to a dev Python service.
-    ///   - devToken: Token for the dev service.
     init(devPort: Int? = nil, devToken: String? = nil) {
         serviceManager = PythonServiceManager(devPort: devPort, devToken: devToken)
         safetyNoticeAcknowledged = UserDefaults.standard.bool(
@@ -130,15 +99,11 @@ final class AppStore: ObservableObject {
             }
     }
 
-    // MARK: Lifecycle
-
-    /// Launch the Python service and wire up all sub-systems.
     func bootstrap() async {
         dashboardState = .launchingService
         await serviceManager.start()
     }
 
-    /// Called when the app is about to terminate.
     func shutdown() async {
         emergencyResponseTask?.cancel()
         statusPoller?.stop()
@@ -151,8 +116,6 @@ final class AppStore: ObservableObject {
         }
         await serviceManager.stop()
     }
-
-    // MARK: Monitor actions
 
     func startMonitoring() async {
         guard let client = apiClient else { return }
@@ -175,7 +138,6 @@ final class AppStore: ObservableObject {
         do {
             let resp = try await client.startMonitoring()
             if resp.ok {
-                // State will update via status poll
                 monitoringStartTime = Date()
                 riskHistory = []
                 totalAlerts = 0
@@ -206,8 +168,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // MARK: Settings
-
     func updateSettings(_ changes: [String: Any]) async {
         guard let client = apiClient else { return }
         do {
@@ -236,8 +196,6 @@ final class AppStore: ObservableObject {
             logger.warning("Failed to load cameras: \(error.localizedDescription)")
         }
     }
-
-    // MARK: Profiles
 
     func loadProfiles() async {
         guard let client = apiClient else { return }
@@ -280,8 +238,6 @@ final class AppStore: ObservableObject {
             connectionError = error.localizedDescription
         }
     }
-
-    // MARK: Events & Sessions
 
     func loadRecentEvents() async {
         guard let client = apiClient else { return }
@@ -405,8 +361,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // MARK: Import
-
     func startImport(paths: [String], outputDirectory: String? = nil) async {
         guard let client = apiClient else { return }
         guard case .serviceReadyIdle = dashboardState else {
@@ -451,8 +405,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // MARK: Private — wiring
-
     private func handleServiceStateChange() async {
         switch serviceManager.state {
         case .ready(let baseURL, let token):
@@ -462,14 +414,12 @@ final class AppStore: ObservableObject {
             let client = FallGuardAPIClient(baseURL: baseURL, token: token)
             apiClient = client
 
-            // Wire sub-services
             let poller = StatusPoller(client: client)
             statusPoller = poller
 
             let preview = PreviewClient(client: client)
             previewClient = preview
 
-            // Observe poller status updates
             poller.$latestStatus
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] status in
@@ -479,7 +429,6 @@ final class AppStore: ObservableObject {
                 }
                 .store(in: &cancellables)
 
-            // Observe poller errors
             poller.$consecutiveFailures
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] count in
@@ -498,7 +447,6 @@ final class AppStore: ObservableObject {
                 }
                 .store(in: &cancellables)
 
-            // Observe preview images
             preview.$currentImage
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] img in
@@ -506,11 +454,9 @@ final class AppStore: ObservableObject {
                 }
                 .store(in: &cancellables)
 
-            // Start polling
             poller.start()
             preview.start()
 
-            // Load initial data
             await refreshSettings()
             await refreshCameras()
             await loadProfiles()
@@ -542,7 +488,6 @@ final class AppStore: ObservableObject {
     private func applyStatus(_ status: ServiceStatus?) {
         guard let status = status else { return }
 
-        // Reset tracking when monitoring stops
         if isMonitoring && !status.monitoring {
             monitoringStartTime = nil
             riskHistory = []
@@ -566,7 +511,6 @@ final class AppStore: ObservableObject {
             visibility = Int(round(pred.visibility * 100))
             personVisible = status.monitoring && pred.state != .unknown
 
-            // Track risk history for trend chart
             if status.monitoring {
                 riskHistory.append(status.riskPercent)
                 if riskHistory.count > maxRiskHistory {
@@ -579,13 +523,10 @@ final class AppStore: ObservableObject {
             handleAPIError(err)
         }
 
-        // Update dashboard state
         updateDashboardState(from: status)
 
-        // Notify on fall/pre-fall events
         checkAndNotify(status)
 
-        // Sync window visibility to poller and preview
         statusPoller?.isMonitoring = status.monitoring
         previewClient?.isMonitoring = status.monitoring
     }
@@ -614,13 +555,8 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Send a native notification when the business state transitions to
-    /// warning or danger — but only once per event.
     private func checkAndNotify(_ status: ServiceStatus) {
         guard let pred = status.prediction else { return }
-        // The Python service tracks events through EventService.
-        // We poll recent events to catch new ones.
-        // For simplicity here: notify based on state transitions.
         let eventType: String?
         switch pred.businessState {
         case .danger: eventType = "fall"
@@ -631,9 +567,6 @@ final class AppStore: ObservableObject {
         guard let type = eventType,
               let eventId = status.activeEventId else { return }
 
-        // The database ID is stable across status polls. Include the event
-        // phase so a pre-fall upgraded to a fall still produces the critical
-        // notification without allowing duplicate alerts for either phase.
         let eventKey = "\(eventId):\(type)"
         guard eventKey != lastNotifiedEventKey else { return }
         lastNotifiedEventKey = eventKey
@@ -742,8 +675,6 @@ final class AppStore: ObservableObject {
             )
         )
 
-        // Repeat a local audible signal for 30 seconds. The visual emergency
-        // state remains until the user explicitly marks it handled.
         emergencyResponseTask = Task { @MainActor [weak self] in
             for _ in 0..<6 {
                 do {

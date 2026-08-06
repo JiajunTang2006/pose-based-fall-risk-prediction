@@ -1,16 +1,6 @@
 import SwiftUI
 import AppKit
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Tab Bar、Brand、Buttons、Service 分组。
-// 品牌名称与应用图标都直接取自 FallGuard 应用本身。
-/// Root view with branded sidebar navigation.
-///
-/// Uses a manual split layout (instead of ``NavigationSplitView``)
-/// for macOS 11 compatibility.  The sidebar matches the old MD3 design:
-/// - Brand logo + title at top
-/// - Navigation items with icons
-/// - Profile + settings at bottom
-/// - System status indicator
 struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var themeManager: ThemeManager
@@ -46,23 +36,17 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             HSplitView {
-                // Sidebar
                 sidebar
                     .frame(minWidth: 200, idealWidth: 220, maxWidth: 260)
                     .frame(height: geometry.size.height, alignment: .top)
 
-                // Content
                 VStack(spacing: 0) {
-                    // Toolbar — transparent so the shared ambient gradient below
-                    // shows straight through.  This keeps the top strip the exact
-                    // same colour as the page content beneath it (no grey seam).
                     toolbarContent
                         .padding(.horizontal, FallGuardSpacing.s16)
                         .padding(.vertical, FallGuardSpacing.s8)
 
                     GlassDivider()
 
-                    // Page content
                     pageContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -101,11 +85,8 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Sidebar
-
     private var sidebar: some View {
         VStack(spacing: 0) {
-            // Brand
             HStack(spacing: FallGuardSpacing.s12) {
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable()
@@ -125,7 +106,6 @@ struct ContentView: View {
             GlassDivider()
                 .padding(.horizontal, FallGuardSpacing.s12)
 
-            // Navigation
             VStack(spacing: FallGuardSpacing.s4) {
                 ForEach(Tab.allCases, id: \.self) { tab in
                     SidebarNavItem(
@@ -141,11 +121,9 @@ struct ContentView: View {
 
             Spacer()
 
-            // Bottom section
             VStack(spacing: FallGuardSpacing.s8) {
                 GlassDivider().padding(.horizontal, FallGuardSpacing.s4)
 
-                // Profile pill
                 Button {
                     selectedTab = .profiles
                 } label: {
@@ -183,21 +161,17 @@ struct ContentView: View {
         .frame(minWidth: 200)
         .glassSidebar()
         .overlay(
-            // Subtle tint so text remains readable on glass
             FallGuardColors.sidebarTint(for: scheme)
                 .opacity(scheme == .dark ? 0.34 : 0.28)
                 .allowsHitTesting(false)
         )
         .overlay(alignment: .trailing) {
-            // Restore the visual boundary between the sidebar and content.
             Rectangle()
                 .fill(FallGuardColors.line(for: scheme))
                 .frame(width: 1)
                 .allowsHitTesting(false)
         }
     }
-
-    // MARK: Toolbar
 
     @ViewBuilder
     private var settingsControl: some View {
@@ -279,8 +253,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Page Content
-
     @ViewBuilder
     private var pageContent: some View {
         switch selectedTab {
@@ -295,8 +267,6 @@ struct ContentView: View {
             ProfilesView()
         }
     }
-
-    // MARK: Helpers
 
     private func openSettings() {
         if #available(macOS 14, *) {
@@ -334,8 +304,6 @@ struct ContentView: View {
         return FallGuardColors.amberLight
     }
 }
-
-// MARK: - Safety & Emergency Overlays
 
 struct SafetyNoticeView: View {
     let scheme: ColorScheme
@@ -498,8 +466,6 @@ private struct EmergencyResponseOverlay: View {
 extension Notification.Name {
     static let fallGuardNavigateToImport = Notification.Name("FallGuardNavigateToImport")
 }
-
-// MARK: - Sidebar Nav Item
 
 struct SidebarNavItem: View {
     let tab: ContentView.Tab

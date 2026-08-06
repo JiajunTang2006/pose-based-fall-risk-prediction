@@ -1,33 +1,22 @@
-"""
-Stable contract types for the ``/api/v1`` service layer.
-
-These DTOs define the exact JSON shapes that Swift expects.  Internal Python
-objects (``Prediction``, ``DashboardSnapshot``, etc.) are never serialised
-directly — they are mapped through the functions in ``serialization.py``.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-# ── enum sets ───────────────────────────────────────────────────────
 
 MODEL_STATES = {"Normal", "Pre-fall", "Fall", "Unknown"}
 BUSINESS_STATES = {"safe", "warning", "danger", "unknown"}
 SERVICE_HEALTH_STATES = {"starting", "ready", "degraded"}
 
 
-# ── API DTOs ────────────────────────────────────────────────────────
-
 @dataclass
 class PredictionDTO:
-    state: str           # "Normal" | "Pre-fall" | "Fall" | "Unknown"
-    alert_state: str     # same as state for v1
-    business_state: str  # "safe" | "warning" | "danger" | "unknown"
-    risk_score: float    # 0.0–1.0
-    visibility: float    # 0.0–1.0
-    confidence: float    # 0.0–1.0
+    state: str
+    alert_state: str
+    business_state: str
+    risk_score: float
+    visibility: float
+    confidence: float
     system_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -102,7 +91,7 @@ class StatusResponse:
 
 @dataclass
 class HealthResponse:
-    status: str  # "starting" | "ready" | "degraded"
+    status: str
     version: str
     api_version: str
     models: dict[str, bool] = field(default_factory=dict)
@@ -139,7 +128,7 @@ class MonitorCommandResponse:
 @dataclass
 class ImportJobResponse:
     id: str
-    state: str  # "running" | "complete" | "error"
+    state: str
     progress: float = 0.0
     current_frame: int = 0
     total_frames: int = 0

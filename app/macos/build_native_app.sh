@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Build the SwiftUI shell and bundled Python AI service into FallGuard.app.
 
 set -euo pipefail
 

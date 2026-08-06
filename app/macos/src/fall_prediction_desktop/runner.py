@@ -44,13 +44,6 @@ class RunResult:
 
 
 def find_app_root() -> Path:
-    """Find the macos app directory (contains ``web/``, ``models/``, ``assets/``).
-
-    Inside a PyInstaller bundle, ``sys._MEIPASS`` points to the ``Resources/``
-    directory where the models, web, and assets folders are stored.  When
-    running from source we search upward from this file's location.
-    """
-    # PyInstaller sets _MEIPASS to the bundled Resources/ directory.
     bundle_root = getattr(sys, "_MEIPASS", None)
     if bundle_root:
         return Path(bundle_root)
@@ -59,22 +52,14 @@ def find_app_root() -> Path:
     for candidate in (source_dir, *source_dir.parents):
         if (candidate / "web").is_dir() and (candidate / "models").is_dir():
             return candidate
-    # Fallback: ../.. from this file (fall_prediction_desktop → src → macos)
     return source_dir.parent.parent
 
 
 def find_repo_root() -> Path:
-    """Deprecated — the app is now self-contained.  Returns ``find_app_root()``."""
     return find_app_root()
 
 
 def ensure_repo_on_path(app_root: Path) -> None:
-    """Ensure the local ``src/`` directory is on ``sys.path``.
-
-    Inside a PyInstaller bundle the ``src/`` directory does not exist;
-    the import system resolves modules from the bundled archive instead,
-    so this is a harmless no-op in that environment.
-    """
     src_dir = str(app_root / "src")
     if src_dir not in sys.path and Path(src_dir).is_dir():
         sys.path.insert(0, src_dir)

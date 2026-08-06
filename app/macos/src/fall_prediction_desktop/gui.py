@@ -12,8 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from .runner import ensure_repo_on_path, find_app_root
     from .paths import media_output_dir

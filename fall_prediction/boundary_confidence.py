@@ -1,5 +1,3 @@
-"""Confidence weighting and tolerant metrics for ambiguous label boundaries."""
-
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -25,7 +23,6 @@ def build_boundary_confidence_weights(
     inner_weight: float = DEFAULT_INNER_BOUNDARY_WEIGHT,
     outer_weight: float = DEFAULT_OUTER_BOUNDARY_WEIGHT,
 ) -> np.ndarray:
-    """Map distance-to-transition into a non-zero per-window confidence."""
     if tolerance_frames < 0:
         raise ValueError("tolerance_frames cannot be negative")
     if inner_frames < 0 or inner_frames > tolerance_frames:
@@ -49,7 +46,6 @@ def combine_label_and_confidence_weights(
     class_weights: Mapping[str, float] | None,
     confidence_weights: Sequence[float] | None,
 ) -> np.ndarray:
-    """Multiply class-balance and boundary-confidence weights."""
     label_values = [str(value) for value in labels]
     class_weights = class_weights or {}
     result = np.asarray(
@@ -75,12 +71,6 @@ def build_boundary_tolerant_metrics(
     *,
     tolerance_frames: int = DEFAULT_BOUNDARY_TOLERANCE_FRAMES,
 ) -> dict[str, Any]:
-    """Accept adjacent-state disagreements within the frame tolerance.
-
-    This does not replace strict metrics.  It produces an additional view by
-    changing only mismatches where the predicted label is also a true label in
-    the same sequence within ``±tolerance_frames``.
-    """
     _validate_equal_lengths(y_true, y_pred, sequences, end_frames)
     truths = [str(value) for value in y_true]
     predictions = [str(value) for value in y_pred]
@@ -126,7 +116,6 @@ def build_transition_latency_report(
     *,
     tolerance_frames: int = DEFAULT_BOUNDARY_TOLERANCE_FRAMES,
 ) -> dict[str, Any]:
-    """Report prediction onset latency for every observed true transition."""
     _validate_equal_lengths(
         y_true, y_pred, sequences, end_frames, boundary_distances
     )

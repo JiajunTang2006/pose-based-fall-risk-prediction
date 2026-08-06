@@ -1,8 +1,6 @@
 import SwiftUI
 import Foundation
 
-// MARK: - Theme Mode
-
 enum ThemeMode: String, CaseIterable {
     case system = "system"
     case light  = "light"
@@ -17,19 +15,11 @@ enum ThemeMode: String, CaseIterable {
     }
 }
 
-// MARK: - Theme Manager
-
-/// Manages the app's theme mode and provides the effective color scheme.
-///
-/// When mode is ``system``, the effective scheme follows the OS appearance.
-/// When mode is ``light`` or ``dark``, the effective scheme is forced.
 @MainActor
 final class ThemeManager: ObservableObject {
 
     @Published var mode: ThemeMode = .system
 
-    /// The resolved effective color scheme.
-    /// Returns `nil` for ``system`` mode (SwiftUI follows the OS).
     var effective: ColorScheme? {
         switch mode {
         case .system: return nil
@@ -38,7 +28,6 @@ final class ThemeManager: ObservableObject {
         }
     }
 
-    /// Returns a concrete ``ColorScheme``, falling back to the OS when in system mode.
     func resolve(osScheme: ColorScheme) -> ColorScheme {
         switch mode {
         case .system: return osScheme
@@ -48,11 +37,6 @@ final class ThemeManager: ObservableObject {
     }
 }
 
-// MARK: - Application Language
-
-/// Controls the app language independently of the macOS system language.
-/// SwiftUI views observe this object through the locale environment, while
-/// imperative AppKit strings use the module-level localization helper below.
 @MainActor
 final class LanguageManager: ObservableObject {
     @Published private(set) var language: String
@@ -78,10 +62,6 @@ final class LanguageManager: ObservableObject {
         resolvedLanguage
     }
 
-    /// Locale used by formatters that are not driven by SwiftUI's environment.
-    ///
-    /// The application language can differ from the macOS language, so using
-    /// ``Locale.current`` here would produce mixed-language dates.
     nonisolated static var formattingLocale: Locale {
         Locale(identifier: resolvedLanguage == "zh" ? "zh_CN" : "en_US")
     }
@@ -104,8 +84,6 @@ final class LanguageManager: ObservableObject {
     }
 }
 
-/// Module-local replacement used by existing AppKit and formatted strings.
-/// It follows ``LanguageManager`` instead of the operating-system language.
 func NSLocalizedString(_ key: String, comment: String) -> String {
     LanguageManager.localizedString(forKey: key)
 }

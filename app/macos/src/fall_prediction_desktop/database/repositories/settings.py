@@ -1,13 +1,3 @@
-"""
-Repository for the ``app_settings`` table — key-value application config.
-
-Usage::
-
-    repo = SettingsRepository(db)
-    repo.set("language", "zh")
-    lang = repo.get("language", default="en")
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -16,7 +6,6 @@ from ..database import DatabaseManager
 
 
 class SettingsRepository:
-    """Persist and retrieve application-level key-value settings."""
 
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db

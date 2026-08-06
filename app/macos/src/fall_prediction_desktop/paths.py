@@ -1,5 +1,3 @@
-"""Writable user-data paths for source and packaged FallGuard builds."""
-
 from __future__ import annotations
 
 import os
@@ -16,12 +14,6 @@ def _ensure_writable(directory: Path) -> Path:
 
 
 def user_data_dir() -> Path:
-    """Return a writable directory outside the packaged application.
-
-    The location is intentionally platform-specific.  Keeping this decision
-    in one module prevents the HTTP service, database and desktop shells from
-    accidentally writing into a read-only MSIX/App bundle.
-    """
     override = os.environ.get("FALLGUARD_DATA_DIR")
     candidates = []
     if override:
@@ -49,7 +41,6 @@ def user_data_dir() -> Path:
 
 
 def media_output_dir() -> Path:
-    """Return a writable media directory, falling back to user app data."""
     if sys.platform == "win32":
         videos = os.environ.get("USERPROFILE") or str(Path.home())
         candidates = [Path(videos) / "Videos" / "FallGuard"]

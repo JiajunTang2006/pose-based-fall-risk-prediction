@@ -1,26 +1,3 @@
-"""
-Risk State Machine — converts per-frame model output into stable business states.
-
-Per the FallGuard Development Workflow (V1.0, Phase 3):
-  - EMA (exponential moving average) smoothing
-  - Consecutive-frame confirmation (不同阈值进出 = hysteresis)
-  - Cooldown period after FALL to prevent duplicate alerts
-  - Pose-loss tolerance window
-  - Recovery state with event merging
-
-States:  NORMAL → WARNING → FALL → RECOVERY → NORMAL
-                NORMAL → FALL  (direct escalation when risk is very high)
-                WARNING → NORMAL  (direct de-escalation when risk drops)
-
-Usage::
-
-    fsm = RiskStateMachine(thresholds={"prefall_threshold": 0.45, "fall_threshold": 0.72})
-    for frame_index, risk_score, confidence in frames:
-        event = fsm.update(risk_score, confidence, person_visible=True)
-        if event:
-            print(f"State change: {fsm.state} at frame {frame_index}")
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -33,19 +10,18 @@ class RiskState(Enum):
     WARNING = "Pre-fall"
     FALL = "Fall"
     RECOVERY = "Recovery"
-    LOST = "Unknown"  # pose tracking lost
+    LOST = "Unknown"
 
 
 @dataclass
 class StateChangeEvent:
-    """Emitted when the state machine transitions between states."""
     from_state: RiskState
     to_state: RiskState
     frame_index: int
     risk_score: float
     confidence: float
-    is_escalation: bool     # True if NORMAL→WARNING or WARNING→FALL
-    is_deescalation: bool   # True if FALL→RECOVERY or RECOVERY→NORMAL or WARNING→NORMAL
+    is_escalation: bool
+    is_deescalation: bool
 
 
 _DEFAULT_THRESHOLDS = {
@@ -56,21 +32,11 @@ _DEFAULT_THRESHOLDS = {
     "cooldown_seconds": 30,
     "recovery_frames": 10,
     "lost_tolerance_frames": 15,
-    "ema_alpha": 0.5,  # smoothing factor (0=no smoothing, 1=raw)
+    "ema_alpha": 0.5,
 }
 
 
 class RiskStateMachine:
-    """Converts noisy per-frame risk scores into stable, hysteresis-protected states.
-
-    Implements all mechanisms required by the development workflow document:
-      - EMA smoothing to reduce jitter
-      - Consecutive-frame confirmation before state transitions
-      - Hysteresis (different entry/exit thresholds) via state-dependent checks
-      - Cooldown timer to prevent duplicate FALL events
-      - Pose-loss tolerance (LOST state after N missing-person frames)
-      - RECOVERY state that prevents immediate re-triggering
-    """
 
     def __init__(self, thresholds: dict | None = None,
                  fps: float = 20.0,
@@ -94,21 +60,18 @@ class RiskStateMachine:
         self._state: RiskState = RiskState.NORMAL
         self._smoothed_risk: float = 0.0
         self._consecutive_count: int = 0
-        self._deescalation_count: int = 0  # Separate counter for exit-from-elevated
+        self._deescalation_count: int = 0
         self._lost_count: int = 0
         self._recovery_count: int = 0
         self._cooldown_remaining: int = 0
         self._frame_index: int = 0
-        self._state_before_lost: RiskState | None = None  # saved when entering LOST
+        self._state_before_lost: RiskState | None = None
         self._on_state_change: Callable[[StateChangeEvent], None] | None = on_state_change
 
-        # Track the last escalation target state (WARNING or FALL) for
-        # consecutive-frame counting while already in a higher state.
         self._escalation_target: RiskState | None = None
         self._last_confidence: float = 1.0
         self._in_update: bool = False
 
-    # ── public API ──────────────────────────────────────────────────
 
     @property
     def state(self) -> RiskState:
@@ -124,10 +87,6 @@ class RiskStateMachine:
 
     def update(self, raw_risk: float, confidence: float = 1.0,
                person_visible: bool = True) -> StateChangeEvent | None:
-        """Feed one frame's risk score into the state machine.
-
-        Returns a ``StateChangeEvent`` when a state transition occurs, or ``None``.
-        """
         if getattr(self, '_in_update', False):
             raise RuntimeError("RiskStateMachine.update() is not re-entrant")
         self._in_update = True
@@ -136,23 +95,19 @@ class RiskStateMachine:
             if self._cooldown_remaining > 0:
                 self._cooldown_remaining -= 1
 
-            # ── Pose loss handling ──────────────────────────────────
             if not person_visible or confidence < self._min_visibility:
                 self._lost_count += 1
                 if self._lost_count >= self._lost_tolerance and self._state != RiskState.LOST:
-                    self._state_before_lost = self._state  # remember for recovery
+                    self._state_before_lost = self._state
                     return self._transition_to(RiskState.LOST)
                 return None
             self._lost_count = 0
 
-            # Recover from LOST — if we were in an elevated state before losing
-            # the person, go through RECOVERY to prevent immediate re-trigger.
             if self._state == RiskState.LOST:
                 if self._state_before_lost in {RiskState.FALL, RiskState.WARNING}:
                     return self._transition_to(RiskState.RECOVERY)
                 return self._transition_to(RiskState.NORMAL)
 
-            # ── EMA smoothing ───────────────────────────────────────
             if self._frame_index == 1:
                 self._smoothed_risk = raw_risk
             else:
@@ -163,7 +118,6 @@ class RiskStateMachine:
             risk = self._smoothed_risk
             self._last_confidence = confidence
 
-            # ── State-dependent logic ───────────────────────────────
             if self._state == RiskState.NORMAL:
                 return self._handle_normal(risk)
             elif self._state == RiskState.WARNING:
@@ -177,7 +131,6 @@ class RiskStateMachine:
             self._in_update = False
 
     def reset(self) -> None:
-        """Reset state machine to initial conditions."""
         self._state = RiskState.NORMAL
         self._smoothed_risk = 0.0
         self._consecutive_count = 0
@@ -190,7 +143,6 @@ class RiskStateMachine:
 
     def set_thresholds(self, prefall: float | None = None, fall: float | None = None,
                        cooldown_seconds: float | None = None) -> None:
-        """Update thresholds at runtime (e.g. when user changes sensitivity)."""
         if prefall is not None:
             self._prefall_threshold = prefall
         if fall is not None:
@@ -203,7 +155,6 @@ class RiskStateMachine:
                 f"fall_threshold ({self._fall_threshold})"
             )
 
-    # ── per-state handlers ──────────────────────────────────────────
 
     def _handle_normal(self, risk: float) -> StateChangeEvent | None:
         if risk >= self._fall_threshold:
@@ -217,18 +168,14 @@ class RiskStateMachine:
 
     def _handle_warning(self, risk: float) -> StateChangeEvent | None:
         if risk >= self._fall_threshold:
-            self._deescalation_count = 0  # reset de-escalation counter
+            self._deescalation_count = 0
             return self._count_toward(RiskState.FALL, risk)
         elif risk >= self._prefall_threshold:
-            # Stay in WARNING
             self._deescalation_count = 0
-            self._consecutive_count = 0  # reset escalation counter
+            self._consecutive_count = 0
             self._escalation_target = None
             return None
         else:
-            # Risk dropped below prefall — count toward NORMAL (hysteresis exit)
-            # Use separate de-escalation counter to avoid interference with
-            # escalation counting that may have been in progress.
             self._deescalation_count += 1
             self._consecutive_count = 0
             self._escalation_target = None
@@ -238,27 +185,23 @@ class RiskStateMachine:
 
     def _handle_fall(self, risk: float) -> StateChangeEvent | None:
         if risk >= self._fall_threshold:
-            self._deescalation_count = 0  # stay in FALL
+            self._deescalation_count = 0
             return None
-        # Risk dropped below fall threshold → count toward RECOVERY
         self._deescalation_count += 1
         if self._deescalation_count >= self._confirm_frames:
             return self._transition_to(RiskState.RECOVERY)
         return None
 
     def _handle_recovery(self, risk: float) -> StateChangeEvent | None:
-        # During RECOVERY, ignore risk spikes (prevent immediate re-trigger)
         self._recovery_count += 1
         if self._recovery_count >= self._recovery_frames:
             return self._transition_to(RiskState.NORMAL)
         return None
 
-    # ── internal helpers ────────────────────────────────────────────
 
     def _count_toward(self, target: RiskState, risk: float) -> StateChangeEvent | None:
-        """Count consecutive frames where risk supports escalation to `target`."""
         if self._cooldown_remaining > 0 and target in {RiskState.WARNING, RiskState.FALL}:
-            return None  # cooldown active, suppress escalation
+            return None
 
         if self._escalation_target == target:
             self._consecutive_count += 1
@@ -279,7 +222,6 @@ class RiskStateMachine:
         self._deescalation_count = 0
         self._escalation_target = None
 
-        # Set cooldown only in _transition_to (single source of truth)
         if new_state == RiskState.FALL:
             self._cooldown_remaining = self._cooldown_frames
         if new_state == RiskState.RECOVERY:

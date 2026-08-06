@@ -1,21 +1,14 @@
 import Foundation
 
-// MARK: - API Protocol Version
-
-/// Current API contract version — must match the Python service's ``API_VERSION``.
 enum APIVersion {
     static let current = "v1"
 }
 
-/// Shared thresholds for the risk percentage shown by the dashboard.
 enum RiskDisplayThresholds {
     static let warningPercent = 45
     static let dangerPercent = 72
 }
 
-// MARK: - Health
-
-/// Service health status returned by `GET /api/v1/health`.
 struct ServiceHealth: Decodable, Equatable {
     let status: HealthStatus
     let version: String
@@ -41,9 +34,6 @@ struct ServiceHealth: Decodable, Equatable {
     }
 }
 
-// MARK: - Monitor Status
-
-/// Full monitoring status returned by `GET /api/v1/status`.
 struct ServiceStatus: Decodable, Equatable {
     let schemaVersion: Int
     let sequence: Int64
@@ -64,8 +54,6 @@ struct ServiceStatus: Decodable, Equatable {
     }
 }
 
-// MARK: - Prediction
-
 struct PredictionDTO: Decodable, Equatable {
     let state: ModelState
     let alertState: ModelState
@@ -75,7 +63,6 @@ struct PredictionDTO: Decodable, Equatable {
     let confidence: Double
     let systemStatus: String?
 
-    /// Model-level prediction state.
     enum ModelState: String, Decodable, Equatable {
         case normal = "Normal"
         case preFall = "Pre-fall"
@@ -83,7 +70,6 @@ struct PredictionDTO: Decodable, Equatable {
         case unknown = "Unknown"
     }
 
-    /// Business-level safety state for UI mapping.
     enum BusinessState: String, Decodable, Equatable {
         case safe, warning, danger, unknown
     }
@@ -97,8 +83,6 @@ struct PredictionDTO: Decodable, Equatable {
     }
 }
 
-// MARK: - Performance
-
 struct PerformanceDTO: Decodable, Equatable {
     let fps: Double
     let frameIndex: Int
@@ -109,9 +93,6 @@ struct PerformanceDTO: Decodable, Equatable {
     }
 }
 
-// MARK: - Command Response
-
-/// Response from monitor start/stop commands.
 struct MonitorCommandResponse: Decodable, Equatable {
     let ok: Bool
     let monitoring: Bool
@@ -123,8 +104,6 @@ struct MonitorCommandResponse: Decodable, Equatable {
         case sessionId = "session_id"
     }
 }
-
-// MARK: - Settings
 
 struct ServiceSettings: Decodable, Equatable {
     let sensitivity: String
@@ -140,8 +119,6 @@ struct ServiceSettings: Decodable, Equatable {
         case soundAlert = "sound_alert"
     }
 }
-
-// MARK: - Profile
 
 struct ProfileDTO: Decodable, Equatable, Identifiable {
     let id: String
@@ -165,8 +142,6 @@ struct ProfileListResponse: Decodable {
         case activeId = "activeId"
     }
 }
-
-// MARK: - Event
 
 struct EventDTO: Decodable, Equatable, Identifiable, Hashable {
     let id: String
@@ -209,8 +184,6 @@ struct EventDTO: Decodable, Equatable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Session
-
 struct SessionDTO: Decodable, Identifiable {
     let id: String
     let profileId: String
@@ -233,8 +206,6 @@ struct SessionDTO: Decodable, Identifiable {
         case endedAt = "ended_at"
     }
 }
-
-// MARK: - Import Job
 
 struct ImportJobDTO: Decodable, Equatable {
     let id: String
@@ -260,8 +231,6 @@ struct ImportJobDTO: Decodable, Equatable {
     }
 }
 
-// MARK: - Paginated Response
-
 struct PaginatedResponse<T: Decodable>: Decodable {
     let items: [T]
     let nextCursor: String?
@@ -274,9 +243,6 @@ struct PaginatedResponse<T: Decodable>: Decodable {
     }
 }
 
-// MARK: - API Error
-
-/// Stable error envelope from the Python service.
 struct ServiceErrorDTO: Decodable, Equatable {
     let code: String
     let messageKey: String
@@ -290,14 +256,10 @@ struct ServiceErrorDTO: Decodable, Equatable {
     }
 }
 
-/// Top-level error response wrapper.
 struct APIErrorResponse: Decodable {
     let error: ServiceErrorDTO
 }
 
-// MARK: - Ready Message
-
-/// The ``ready`` JSON line printed by the Python service on stdout.
 struct ReadyMessage: Decodable {
     let event: String       // always "ready"
     let port: Int
@@ -311,14 +273,10 @@ struct ReadyMessage: Decodable {
     }
 }
 
-// MARK: - Camera Info
-
 struct CameraListResponse: Decodable {
     let cameras: [Int]
     let current: Int
 }
-
-// MARK: - Generic wrappers
 
 struct OkResponse: Decodable {
     let ok: Bool
@@ -364,28 +322,22 @@ struct ImportCreateResponse: Decodable {
     let `import`: ImportJobDTO
 }
 
-// MARK: - Helpers
-
 extension ServiceStatus {
-    /// Whether the monitor is actively running (not loading, not idle).
     var isActive: Bool {
         monitoring && !loading
     }
 
-    /// A display-friendly risk percentage (0–100).
     var riskPercent: Int {
         guard let p = prediction else { return 0 }
         return min(100, max(0, Int(round(p.riskScore * 100))))
     }
 
-    /// Whether the person is currently visible.
     var personVisible: Bool {
         prediction?.state != .unknown
     }
 }
 
 extension PredictionDTO.ModelState {
-    /// Localized display name for the model state.
     var displayName: String {
         switch self {
         case .normal: return NSLocalizedString("state.normal", comment: "Normal")

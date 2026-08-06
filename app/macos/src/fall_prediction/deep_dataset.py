@@ -1,5 +1,3 @@
-"""Utilities that preserve the temporal shape of sliding-window features."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,7 +10,6 @@ from .window_dataset import WindowDataset
 
 @dataclass(frozen=True)
 class TemporalWindowDataset:
-    """A window dataset shaped as ``[samples, time, features]``."""
 
     X: np.ndarray
     y: np.ndarray
@@ -25,7 +22,6 @@ def preserve_temporal_shape(
     window_size: int,
     feature_columns: Sequence[str],
 ) -> TemporalWindowDataset:
-    """Convert the legacy flattened windows without changing sample order."""
     feature_count = len(feature_columns)
     expected_width = window_size * feature_count
     X = np.asarray(dataset.X, dtype=np.float32)
@@ -43,7 +39,6 @@ def preserve_temporal_shape(
 
 
 def fit_feature_normalizer(X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Fit per-feature normalization using training windows only."""
     if X.ndim != 3:
         raise ValueError("Expected X shaped as [samples, time, features]")
     mean = X.mean(axis=(0, 1), dtype=np.float64).astype(np.float32)
@@ -57,5 +52,4 @@ def normalize_temporal_features(
     mean: np.ndarray,
     std: np.ndarray,
 ) -> np.ndarray:
-    """Apply a train-fitted per-feature normalizer."""
     return ((X - mean.reshape(1, 1, -1)) / std.reshape(1, 1, -1)).astype(np.float32)

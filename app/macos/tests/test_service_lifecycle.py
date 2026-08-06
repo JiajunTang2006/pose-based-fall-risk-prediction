@@ -1,5 +1,3 @@
-"""Tests for the service lifecycle module (signals, watchdog, shutdown)."""
-
 import signal
 import threading
 import time
@@ -38,7 +36,7 @@ class TestServiceLifecycle(unittest.TestCase):
 
     def test_shutdown_callback_exception_does_not_block_others(self):
         results = []
-        self.lifecycle.on_shutdown(lambda: 1 / 0)  # raises
+        self.lifecycle.on_shutdown(lambda: 1 / 0)
         self.lifecycle.on_shutdown(lambda: results.append("ok"))
         self.lifecycle.request_shutdown()
         self.lifecycle.shutdown()
@@ -100,9 +98,7 @@ class TestParentWatchdog(unittest.TestCase):
 class TestInstallSignalHandlers(unittest.TestCase):
     def test_install_does_not_raise(self):
         lifecycle = ServiceLifecycle()
-        # Installing signal handlers should succeed
         install_signal_handlers(lifecycle)
-        # Verify the handlers were installed (they exist)
         self.assertEqual(
             signal.getsignal(signal.SIGTERM), lifecycle.request_shutdown
         )
@@ -111,7 +107,6 @@ class TestInstallSignalHandlers(unittest.TestCase):
         )
 
     def tearDown(self):
-        # Restore default handlers
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 

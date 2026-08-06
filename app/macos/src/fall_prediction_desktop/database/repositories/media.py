@@ -1,9 +1,3 @@
-"""
-Repository for the ``media_files`` table — imported videos/images and event clips.
-
-Media files are stored on disk; this table tracks their metadata and status.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -13,7 +7,6 @@ from ..database import DatabaseManager
 
 
 class MediaFilesRepository:
-    """Track imported media and event media clips."""
 
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
@@ -76,7 +69,6 @@ class MediaFilesRepository:
         return cur.rowcount > 0
 
     def delete_by_session(self, session_id: str) -> int:
-        """Delete all media file records for a session. Returns count."""
         cur = self._db.get_connection().execute(
             "DELETE FROM media_files WHERE session_id = ?", (session_id,)
         )

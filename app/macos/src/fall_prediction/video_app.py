@@ -1,28 +1,3 @@
-"""
-视频/摄像头入口程序：把整个跌倒预测系统跑起来。
-
-这个文件的职责是"串联"所有模块：
-1. 打开视频文件或摄像头
-2. 逐帧读取图像
-3. 用 MediaPipe 或 YOLO-pose 提取关键点 (pose.py)
-4. 用 FallPredictor 分析跌倒风险 (predictor.py)
-5. 在画面上画人物框和状态信息
-6. 可选地输出 CSV 结果文件和标注视频
-
-使用方式：
-    # 使用默认摄像头（编号 0）
-    python -m fall_prediction --show
-
-    # 处理一个视频文件
-    python -m fall_prediction --source my_video.mp4 --show
-
-    # 输出 CSV 结果（需要显式指定）
-    python -m fall_prediction --source my_video.mp4 --output-csv results.csv
-
-    # 输出标注后的视频
-    python -m fall_prediction --source my_video.mp4 --output-video annotated.mp4
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -43,33 +18,30 @@ from .sensitivity import SENSITIVITY_LEVELS, ml_config_for_sensitivity, predicto
 DEFAULT_PREDICTOR_CONFIG = PredictorConfig()
 
 
-# 支持作为“图片序列视频”读取的图片格式。
-# UR Fall 的 RGB 数据通常是 .png，这里额外兼容一些常见图片扩展名。
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
-    # CSV 文件的列名（显式导出结果时会包含这些字段）
 CSV_COLUMNS = (
-    "frame",                  # 帧编号
-    "time",                   # 时间（秒）
-    "state",                  # 最终状态（Normal/Pre-fall/Fall/Unknown）
-    "alert_state",            # 报警状态；ML 模型可比 state 更早触发 Pre-fall
-    "advisory_state",         # 深度融合模型的辅助提示，不等同于正式报警
-    "decision_tier",          # 双模型分级判断层级
-    "instant_state",          # 瞬时状态（未平滑）
-    "risk_score",             # 瞬时风险分数
-    "smoothed_risk_score",    # 平滑后的风险分数
-    "has_pose",               # 是否检测到人体姿态（1/0）
-    "torso_angle",            # 躯干倾斜角度（度）
-    "torso_angular_velocity", # 躯干角速度（度/秒）
-    "body_center_y",          # 身体中心 Y 坐标
-    "body_center_delta",      # 身体中心相对上一帧的变化
-    "vertical_velocity",      # 垂直速度
-    "aspect_ratio",           # 宽高比
-    "body_width",             # 人体包围盒宽度
-    "body_height",            # 人体包围盒高度
-    "visibility_mean",        # 平均可见度
-    "center_drop",            # 身体中心下降量
+    "frame",
+    "time",
+    "state",
+    "alert_state",
+    "advisory_state",
+    "decision_tier",
+    "instant_state",
+    "risk_score",
+    "smoothed_risk_score",
+    "has_pose",
+    "torso_angle",
+    "torso_angular_velocity",
+    "body_center_y",
+    "body_center_delta",
+    "vertical_velocity",
+    "aspect_ratio",
+    "body_width",
+    "body_height",
+    "visibility_mean",
+    "center_drop",
 )
 
 
@@ -98,33 +70,8 @@ def process_video(
     on_prediction: Callable[[object, int, float, object], None] | None = None,
     enhance_low_light_frames: bool = True,
 ) -> None:
-    """
-    处理视频或摄像头流，进行跌倒预测。
-
-    这是整个程序的核心函数，串联了所有模块。
-
-    参数:
-        source:       视频文件路径，或者摄像头编号（0=默认摄像头）
-        output_csv:   输出 CSV 文件路径；None 或空字符串表示不保存每帧 CSV
-        output_video: 输出标注视频路径（在原视频上叠加骨架和状态）
-        model_path:   MediaPipe Tasks 模型路径
-        pose_backend: 姿态估计后端，"mediapipe" 或 "yolo"
-        yolo_model_path: YOLO-pose .pt 模型路径
-        show:         是否显示实时预览窗口
-        predictor_type: "rule" 使用原规则系统，"ml" 使用训练好的机器学习模型
-        classifier_model_path: 机器学习分类器 joblib 模型路径
-        image_sequence_fps: 当 source 是图片目录时，假设这组图片的帧率是多少
-        enhance_low_light_frames: 是否在姿态估计前对偏暗的帧做 CLAHE 提亮。
-                      默认开启；只有画面平均亮度低于阈值时才实际增强，
-                      够亮的帧原样通过，不额外耗时。
-    """
     import cv2
 
-    # ---- 打开视频源 ----
-    # source 现在支持三种形式：
-    # 1. 摄像头编号：0
-    # 2. 视频文件：xxx.mp4 / xxx.avi
-    # 3. 图片目录：data/videos/fall-01-cam0-rgb
     capture = open_frame_source(source, image_sequence_fps=image_sequence_fps)
     writer = None
     csv_file = None
@@ -135,31 +82,26 @@ def process_video(
         if not capture.isOpened():
             raise RuntimeError(f"Could not open video source: {source}")
 
-        # 获取视频帧率（fps），如果获取不到就用默认值 30
         fps = capture.get(cv2.CAP_PROP_FPS)
         if fps <= 1e-6:
             fps = 30.0
 
-        # 获取视频分辨率
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
 
-        # ---- 设置输出视频写入器 ----
         if output_video:
             output_path = Path(output_video)
-            output_path.parent.mkdir(parents=True, exist_ok=True)  # 自动创建目录
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # MP4 编码
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
-        # ---- 设置 CSV 输出 ----
         if output_csv:
             csv_path = Path(output_csv)
-            csv_path.parent.mkdir(parents=True, exist_ok=True)  # 自动创建目录
+            csv_path.parent.mkdir(parents=True, exist_ok=True)
             csv_file = csv_path.open("w", newline="", encoding="utf-8")
             csv_writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS)
-            csv_writer.writeheader()  # 写入表头
+            csv_writer.writeheader()
 
-        # ---- 初始化核心模块 ----
         estimator = create_pose_estimator(
             pose_backend=pose_backend,
             model_path=model_path,
@@ -179,95 +121,67 @@ def process_video(
             temporal_sensitivity=temporal_sensitivity,
             fusion_fall_confirmation_steps=fusion_fall_confirmation_steps,
             use_static_lying_adl_filter=use_static_lying_adl_filter,
-        )  # 跌倒预测器
+        )
 
         frame_index = 0
         while True:
-            # 读取一帧
             ok, frame = capture.read()
             if not ok:
-                break  # 视频播放完毕
+                break
 
-            # 计算当前时间戳（秒）
             timestamp = frame_index / fps
 
-            # ---- 低光增强：偏暗的帧先提亮再进姿态估计 ----
-            # 原地替换 frame，让后续的检测、标注视频、事件证据片段
-            # 都基于增强后的画面。够亮的帧会原样返回，几乎不耗时。
             if enhance_low_light_frames:
                 frame = enhance_low_light(frame)
 
-            # ---- 第一步：姿态估计后端提取关键点 ----
             landmarks = estimator.process_bgr(frame, timestamp_ms=int(timestamp * 1000))
 
-            # ---- 第二步：跌倒预测 ----
             prediction = predictor.predict(landmarks, frame_index, timestamp)
             if on_prediction is not None:
                 on_prediction(prediction, frame_index, timestamp, frame)
 
-            # ---- 第三步：绘制可视化 ----
             person_bbox = draw_person_box(frame, landmarks)
-            draw_overlay(frame, prediction, person_bbox)  # 画状态文字（正常/预跌倒/跌倒）
+            draw_overlay(frame, prediction, person_bbox)
 
-            # ---- 第四步：输出数据 ----
             if csv_writer:
                 csv_writer.writerow(prediction_to_row(prediction))
 
             if writer:
-                writer.write(frame)  # 写入标注后的视频帧
+                writer.write(frame)
 
-            # ---- 第五步：显示预览窗口 ----
             if show:
                 cv2.imshow("Fall prediction", frame)
-                # 按 Q 键退出
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
             frame_index += 1
     finally:
-        # ---- 清理资源 ----
-        # finally 保证无论是否出错，都会释放资源
         if estimator:
-            estimator.close()   # 释放姿态估计器资源
-        capture.release()       # 释放摄像头/视频
+            estimator.close()
+        capture.release()
         if writer:
-            writer.release()    # 关闭视频文件
+            writer.release()
         if csv_file:
-            csv_file.close()    # 关闭 CSV 文件
+            csv_file.close()
         if show:
-            cv2.destroyAllWindows()  # 关闭所有 OpenCV 窗口
+            cv2.destroyAllWindows()
 
 
 def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | None = None) -> None:
-    """
-    在视频帧上叠加状态信息的文字覆盖层。
-
-    显示内容包括：
-    - 当前报警/判断状态（Normal / Pre-fall / Fall / Unknown）
-    - 如果报警状态和模型原始分类不同，额外显示模型原始分类
-
-    颜色编码：
-    - Normal   → 绿色（安全）
-    - Pre-fall → 黄色（警告！即将跌倒）
-    - Fall     → 红色（跌倒！）
-    - Unknown  → 灰色（未检测到人）
-    """
     import cv2
 
     display_state = prediction.alert_state or prediction.state
     advisory_state = getattr(prediction, "advisory_state", None)
 
-    # 根据报警状态选择文字颜色
     color = {
-        "Normal": (80, 220, 120),    # 绿色
-        "Pre-fall": (0, 200, 255),   # 黄色（OpenCV 是 BGR，所以 (0,200,255)=黄色）
-        "Fall": (0, 80, 255),        # 红色
-        "Unknown": (160, 160, 160),  # 灰色
+        "Normal": (80, 220, 120),
+        "Pre-fall": (0, 200, 255),
+        "Fall": (0, 80, 255),
+        "Unknown": (160, 160, 160),
     }.get(display_state, (255, 255, 255))
     if advisory_state and display_state == "Normal":
         color = (0, 200, 255) if advisory_state == "Pre-fall" else (0, 120, 255)
 
-    # 只保留最关键的信息，避免画面被参数遮住。
     lines = [f"State: {display_state}"]
     if advisory_state and advisory_state != display_state:
         lines.append(f"Advisory: {advisory_state}")
@@ -284,7 +198,6 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
     block_width = text_width + padding * 2
     block_height = line_height * len(lines) + padding
 
-    # 文字跟随人物框，但放在框外：优先在框上方；空间不够时放在框下方。
     if person_bbox is None:
         x, top = 18, 18
     else:
@@ -307,11 +220,6 @@ def draw_overlay(frame, prediction, person_bbox: tuple[int, int, int, int] | Non
 
 
 def prediction_to_row(prediction) -> dict[str, str | int]:
-    """
-    将 Prediction 对象转换为 CSV 的一行数据。
-
-    把所有数值格式化为 4 位小数，方便后续在 Excel 或 Python 中分析。
-    """
     features = prediction.features
     return {
         "frame": prediction.frame_index,
@@ -342,7 +250,6 @@ def create_pose_estimator(
     model_path: str | Path | None = None,
     yolo_model_path: str | Path | None = None,
 ):
-    """Create the requested pose estimation backend."""
     if pose_backend == "mediapipe":
         return MediaPipePoseEstimator(model_path=model_path)
     if pose_backend == "yolo":
@@ -365,7 +272,6 @@ def create_predictor(
     fusion_fall_confirmation_steps: int = 3,
     use_static_lying_adl_filter: bool = True,
 ):
-    """Create the requested prediction backend."""
     if predictor_type == "rule":
         return FallPredictor(config=predictor_config)
     if predictor_type == "ensemble":
@@ -418,20 +324,6 @@ def create_predictor(
 
 
 class ImageSequenceCapture:
-    """
-    把一个图片文件夹包装成类似 cv2.VideoCapture 的对象。
-
-    OpenCV 的 VideoCapture 可以读取 mp4 视频，但不能直接把一个目录当视频读。
-    UR Fall 的图片版数据集是一帧一张图，所以这里做一个小适配器：
-
-    - isOpened(): 判断目录里有没有可读图片
-    - read(): 每次返回下一张图片，就像读取视频下一帧
-    - get(): 提供 fps、宽、高等信息，方便后面的代码不用区分视频/图片目录
-    - release(): 保持和 VideoCapture 一样的接口
-
-    这样 process_video() 里后续的姿态估计、预测、写 CSV、写标注视频逻辑
-    都可以复用，不需要为图片数据集再写一套流程。
-    """
 
     def __init__(self, image_dir: str | Path, fps: float = 30.0) -> None:
         self.image_dir = Path(image_dir)
@@ -441,7 +333,6 @@ class ImageSequenceCapture:
         self.width = 0
         self.height = 0
 
-        # 读取第一张图片，确定分辨率。后面写 MP4 标注视频时要求所有帧同尺寸。
         if self.image_paths:
             import cv2
 
@@ -450,17 +341,9 @@ class ImageSequenceCapture:
                 self.height, self.width = first_frame.shape[:2]
 
     def isOpened(self) -> bool:
-        """目录中有图片，并且第一张图能被 OpenCV 正常读取，就认为打开成功。"""
         return bool(self.image_paths) and self.width > 0 and self.height > 0
 
     def read(self):
-        """
-        读取下一张图片。
-
-        返回格式和 cv2.VideoCapture.read() 一样：
-            (True, frame)  表示成功读取一帧
-            (False, None)  表示序列结束
-        """
         import cv2
 
         while self.index < len(self.image_paths):
@@ -471,8 +354,6 @@ class ImageSequenceCapture:
                 print(f"Warning: could not read image, skipped: {image_path}")
                 continue
 
-            # 如果某些图片尺寸不一致，就缩放到第一张图的尺寸。
-            # 这能避免 VideoWriter 因为帧尺寸变化而写出损坏视频。
             if frame.shape[1] != self.width or frame.shape[0] != self.height:
                 frame = cv2.resize(frame, (self.width, self.height))
             return True, frame
@@ -480,7 +361,6 @@ class ImageSequenceCapture:
         return False, None
 
     def get(self, prop_id: int) -> float:
-        """模拟 cv2.VideoCapture.get()，返回帧率、宽、高、帧数等信息。"""
         import cv2
 
         if prop_id == cv2.CAP_PROP_FPS:
@@ -496,17 +376,10 @@ class ImageSequenceCapture:
         return 0.0
 
     def release(self) -> None:
-        """图片序列没有需要释放的底层句柄，这里只是为了接口兼容。"""
         return None
 
 
 def open_frame_source(source: str | int, image_sequence_fps: float = 30.0):
-    """
-    根据 source 类型打开帧源。
-
-    返回的对象一定提供 read/isOpened/get/release 这些方法，
-    所以后面的主循环可以统一处理。
-    """
     import cv2
 
     if isinstance(source, int):
@@ -520,18 +393,6 @@ def open_frame_source(source: str | int, image_sequence_fps: float = 30.0):
 
 
 def find_image_sequence_files(image_dir: str | Path) -> list[Path]:
-    """
-    找到目录中的图片，并按“自然顺序”排序。
-
-    普通字符串排序会出现这种问题：
-        1.png, 10.png, 2.png
-
-    自然排序会按数字大小排：
-        1.png, 2.png, 10.png
-
-    UR Fall 文件名类似 fall-01-cam0-rgb-001.png，
-    所以自然排序可以确保帧顺序正确。
-    """
     directory = Path(image_dir)
     images = [
         path
@@ -542,15 +403,6 @@ def find_image_sequence_files(image_dir: str | Path) -> list[Path]:
 
 
 def infer_image_sequence_fps(image_paths: list[Path], default_fps: float = 30.0) -> float:
-    """
-    Infer FPS from timestamp-style image names.
-
-    UP Fall RGB frames use names such as:
-        2018-07-04T12_04_26.648452.png
-
-    UR Fall frame names do not contain wall-clock timestamps, so those fall back
-    to default_fps.
-    """
     timestamps = [_timestamp_from_image_name(path) for path in image_paths]
     timestamps = [timestamp for timestamp in timestamps if timestamp is not None]
     if len(timestamps) < 2:
@@ -563,7 +415,6 @@ def infer_image_sequence_fps(image_paths: list[Path], default_fps: float = 30.0)
 
 
 def _timestamp_from_image_name(path: Path) -> datetime | None:
-    """Parse UP Fall timestamp image names, returning None for other naming styles."""
     try:
         return datetime.strptime(path.stem, "%Y-%m-%dT%H_%M_%S.%f")
     except ValueError:
@@ -571,42 +422,20 @@ def _timestamp_from_image_name(path: Path) -> datetime | None:
 
 
 def natural_sort_key(path: str | Path) -> list[int | str]:
-    """把文件名拆成文字和数字片段，用于自然排序。"""
     name = Path(path).name.lower()
     parts = re.split(r"(\d+)", name)
     return [int(part) if part.isdigit() else part for part in parts]
 
 
 def parse_source(value: str) -> str | int:
-    """
-    解析 --source 参数：如果是纯数字就当作摄像头编号（int），否则当作文件路径（str）。
-
-    示例:
-        "0" → 0（摄像头 0）
-        "my_video.mp4" → "my_video.mp4"（文件路径）
-    """
     if value.isdigit():
         return int(value)
     return value
 
 
 def main() -> None:
-    """
-    命令行入口函数。
-
-    支持的参数：
-        --source       视频文件路径或摄像头编号（默认 0=默认摄像头）
-        --output-csv   CSV 输出路径（默认不导出）
-        --output-video 标注视频输出路径（默认不输出）
-        --model        MediaPipe 模型路径（默认自动检测）
-        --pose-backend 姿态估计后端：mediapipe 或 yolo
-        --yolo-model   YOLO-pose 模型路径
-        --image-fps    source 是图片目录时使用的帧率
-        --disable-temporal-fall-validation 关闭 Fall 时序确认层
-        --show         显示实时预览窗口
-    """
     parser = argparse.ArgumentParser(description="Run fall prediction on a video, image sequence, or webcam.")
-    parser.add_argument("--source", default="0", help="视频路径、图片目录或摄像头编号。默认使用摄像头 0。")
+    parser.add_argument("--source", default="0", help="Video path, image directory, or camera index. Default: camera 0.")
     parser.add_argument(
         "--output-csv",
         default=None,
@@ -618,63 +447,63 @@ def main() -> None:
         "--pose-backend",
         choices=("mediapipe", "yolo"),
         default="mediapipe",
-        help="姿态估计后端：mediapipe 使用原流程，yolo 使用 Ultralytics YOLO-pose。",
+        help="Pose backend: mediapipe uses the legacy pipeline; yolo uses Ultralytics YOLO-pose.",
     )
     parser.add_argument(
         "--yolo-model",
         default="models/yolo26n-pose.pt",
-        help="当 --pose-backend yolo 时加载的 YOLO-pose .pt 模型路径。",
+        help="Path to the YOLO-pose .pt model used with --pose-backend yolo.",
     )
-    parser.add_argument("--config", default=None, help="可选：JSON 配置文件，例如 configs/default.json。")
+    parser.add_argument("--config", default=None, help="Optional JSON configuration file, for example configs/default.json.")
     parser.add_argument(
         "--sensitivity",
         choices=SENSITIVITY_LEVELS,
         default=None,
-        help="检测灵敏度：low 更保守，medium 默认，high 更敏感。未设置时使用配置文件或内置默认。",
+        help="Detection sensitivity: low is conservative, medium is the default, and high is more responsive. Uses the configured or built-in default when omitted.",
     )
-    parser.add_argument("--image-fps", type=float, default=30.0, help="当 --source 是图片目录时使用的帧率，默认 30。")
+    parser.add_argument("--image-fps", type=float, default=30.0, help="Frame rate used when --source is an image directory. Default: 30.")
     parser.add_argument(
         "--predictor",
         choices=("rule", "ml", "deep", "fusion", "ensemble"),
         default="rule",
-        help="预测后端：rule规则、ml树模型、fusion深度融合、ensemble双模型协作。",
+        help="Predictor backend: rule, tree-based ml, deep fusion, or cooperative dual-model ensemble.",
     )
     parser.add_argument(
         "--classifier-model",
         default=None,
-        help="分类器路径；ensemble 模式下为树模型路径。",
+        help="Classifier path; in ensemble mode, this is the tree-model path.",
     )
     parser.add_argument(
         "--fusion-model",
         default="models/skeleton_feature_fusion_tuned.pt",
-        help="ensemble 模式加载的骨架与特征融合模型路径。",
+        help="Skeleton-feature fusion model path used in ensemble mode.",
     )
     parser.add_argument(
         "--prefall-alert-threshold",
         type=float,
         default=None,
-        help="ML 预警阈值：即使 state 仍为 Normal，Pre-fall 概率连续偏高也显示 Alert: Pre-fall。",
+        help="ML alert threshold: emit Alert: Pre-fall when Pre-fall probability remains elevated even if state is Normal.",
     )
     parser.add_argument(
         "--prefall-alert-frames",
         type=int,
         default=None,
-        help="ML 预警需要连续多少帧超过 --prefall-alert-threshold，默认 1。",
+        help="Consecutive frames required above --prefall-alert-threshold. Default: 1.",
     )
     parser.add_argument(
         "--use-hmm",
         action="store_true",
-        help="启用 HMM Viterbi 时序平滑，减少状态跳变和单帧误报。",
+        help="Enable HMM Viterbi smoothing to reduce state jitter and one-frame false alarms.",
     )
     parser.add_argument(
         "--use-accel",
         action="store_true",
-        help="推理时使用加速度增强特征（需模型训练时也启用了 --use-accel）。",
+        help="Use acceleration features during inference; the model must also be trained with --use-accel.",
     )
     parser.add_argument(
         "--disable-temporal-fall-validation",
         action="store_true",
-        help="关闭运行时 Fall 时序确认层，恢复只按模型/HMM 输出判 Fall。",
+        help="Disable runtime temporal Fall confirmation and rely on model/HMM output.",
     )
     parser.add_argument("--show", action="store_true", help="Show an OpenCV preview window.")
     args = parser.parse_args()

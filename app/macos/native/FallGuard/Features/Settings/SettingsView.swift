@@ -2,9 +2,6 @@ import SwiftUI
 import ServiceManagement
 import UniformTypeIdentifiers
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Settings、Theme、Sensitivity 分组。
-// “关于”页面的 FallGuard 和版本号是本文件中少量直接显示的文字。
-/// Settings with sidebar navigation (matching old PySide6 layout).
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var themeManager: ThemeManager
@@ -41,7 +38,6 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sidebar nav
             VStack(spacing: 0) {
                 ForEach(SettingsPage.allCases, id: \.self) { page in
                     Button { selectedPage = page } label: {
@@ -93,7 +89,6 @@ struct SettingsView: View {
 
             GlassVerticalDivider()
 
-            // Content
             Group {
                 switch selectedPage {
                 case .general:   GeneralPage(scheme: scheme)
@@ -124,8 +119,6 @@ struct SettingsView: View {
         }
     }
 }
-
-// MARK: - Pages
 
 struct GeneralPage: View {
     @EnvironmentObject var store: AppStore
@@ -619,8 +612,6 @@ struct AboutPage: View {
         }
     }
 }
-
-// MARK: - Shared Components
 
 struct PageHeader: View {
     let title: LocalizedStringKey

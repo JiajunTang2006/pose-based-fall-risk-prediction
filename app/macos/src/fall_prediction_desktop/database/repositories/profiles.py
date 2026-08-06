@@ -1,10 +1,3 @@
-"""
-Repository for the ``profiles`` table — per-person detection configs.
-
-Only ONE profile may be ``is_active = 1`` at any time (enforced in Python,
-not via a DB trigger, to keep the schema simple).
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -15,12 +8,10 @@ from ..database import DatabaseManager
 
 
 class ProfilesRepository:
-    """CRUD for user profiles with detection thresholds."""
 
     def __init__(self, db: DatabaseManager) -> None:
         self._db = db
 
-    # ── create / read / update / delete ────────────────────────────
 
     def create(self, name: str) -> dict:
         pid = uuid.uuid4().hex[:12]
@@ -36,7 +27,6 @@ class ProfilesRepository:
         return self.get(pid)  # type: ignore[return-value]
 
     def upsert(self, profile_id: str, name: str, *, is_active: bool = False) -> dict:
-        """Import or update a profile while preserving its legacy ID."""
         if not profile_id:
             raise ValueError("profile_id is required")
         now = datetime.now(timezone.utc).isoformat()
@@ -139,10 +129,8 @@ class ProfilesRepository:
             conn.execute("UPDATE profiles SET is_active = 1 WHERE id = ?", (profile_id,))
         return True
 
-    # ── threshold helpers ──────────────────────────────────────────
 
     def get_thresholds(self, profile_id: str | None = None) -> dict:
-        """Return {prefall_threshold, fall_threshold, consecutive_frames, cooldown_seconds}."""
         profile = self.get(profile_id) if profile_id else self.get_active()
         if profile is None:
             return {

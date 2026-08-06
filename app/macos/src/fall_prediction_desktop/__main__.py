@@ -1,17 +1,7 @@
-"""
-FallGuard entry point.
-
-Default:   open the native PySide6 desktop window.
---menubar: run as a lightweight menu bar app instead.
---connect: open a monitor window connected to an already-running menu bar server.
-"""
-
 from __future__ import annotations
 
 import argparse
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from . import __version__
     from .web_app import main_native as run_native

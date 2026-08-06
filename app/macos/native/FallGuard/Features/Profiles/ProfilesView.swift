@@ -1,7 +1,5 @@
 import SwiftUI
 
-// 文案修改位置：Resources/*/Localizable.strings 中的 Profiles 分组；布局代码无需修改。
-/// Profile management with card-style layout.
 struct ProfilesView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.colorScheme) private var colorScheme
@@ -12,7 +10,6 @@ struct ProfilesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
                 Text("profiles.title")
                     .font(FallGuardFont.title)
@@ -68,7 +65,6 @@ struct ProfilesView: View {
                 }
             }
 
-            // Status bar
             HStack {
                 Text(String(format: NSLocalizedString("profiles.count", comment: ""),
                            store.profiles.count))
@@ -107,8 +103,6 @@ struct ProfilesView: View {
     }
 }
 
-// MARK: - Profile Card
-
 struct ProfileCard: View {
     let profile: ProfileDTO
     let isActive: Bool
@@ -119,7 +113,6 @@ struct ProfileCard: View {
 
     var body: some View {
         VStack(spacing: FallGuardSpacing.s12) {
-            // Top
             HStack {
                 ZStack {
                     Circle()
@@ -163,7 +156,6 @@ struct ProfileCard: View {
 
             Divider()
 
-            // Bottom
             HStack {
                 Label(
                     String(format: NSLocalizedString("profiles.fall_count", comment: ""), profile.fallCount),

@@ -1,8 +1,3 @@
-"""
-Internationalization — port of i18n.js to Python.
-Loads en.json / zh.json and provides t() and t_dynamic().
-"""
-
 from __future__ import annotations
 
 import json
@@ -18,10 +13,8 @@ class I18n:
         self._current_lang: str = "en"
         self._ready: bool = False
 
-    # ── public API ──────────────────────────────────────────────────
 
     def init(self) -> None:
-        """Load translation files and restore saved language."""
         self._translations = {}
         for lang in ("en", "zh"):
             path = self._locales_dir / f"{lang}.json"
@@ -30,28 +23,23 @@ class I18n:
             except (OSError, json.JSONDecodeError):
                 self._translations[lang] = {}
 
-        # Restore saved language
         saved = self._load_saved()
         if saved in self._translations:
             self._current_lang = saved
         self._ready = True
 
     def t(self, key: str, fallback: str = "") -> str:
-        """Translate dotted key like 'buttons.startMonitoring'."""
         if not self._ready:
             return fallback or key
-        # Try current language
         value = self._resolve(self._translations.get(self._current_lang, {}), key)
         if value is not None:
             return value
-        # Fall back to English
         value = self._resolve(self._translations.get("en", {}), key)
         if value is not None:
             return value
         return fallback or key
 
     def t_dynamic(self, english_string: str) -> str:
-        """Translate a backend-originated English string using the backend map."""
         if not english_string:
             return english_string
         if self._current_lang == "en":
@@ -65,7 +53,6 @@ class I18n:
         return english_string
 
     def set_language(self, lang: str) -> None:
-        """Switch language and persist."""
         if lang not in self._translations:
             return
         self._current_lang = lang
@@ -79,7 +66,6 @@ class I18n:
     def ready(self) -> bool:
         return self._ready
 
-    # ── helpers ─────────────────────────────────────────────────────
 
     @staticmethod
     def _resolve(lang_obj: dict, path: str) -> str | None:
@@ -109,7 +95,6 @@ class I18n:
             pass
 
 
-# Singleton
 _i18n: I18n | None = None
 
 
@@ -125,7 +110,6 @@ def init_i18n(locales_dir: Path) -> I18n:
     return _i18n
 
 
-# Convenience shortcuts
 def t(key: str, fallback: str = "") -> str:
     return get_i18n().t(key, fallback)
 

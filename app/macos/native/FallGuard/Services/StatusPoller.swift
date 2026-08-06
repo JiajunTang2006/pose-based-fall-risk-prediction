@@ -1,28 +1,15 @@
 import Foundation
 import OSLog
 
-/// Polls `GET /api/v1/status` on a configurable interval and publishes results.
-///
-/// The poll rate adapts to application state:
-/// - Monitoring + window visible: 250–500 ms
-/// - Monitoring + window hidden: 1 s
-/// - Idle: 2 s
-/// - Service starting: 500 ms health check, max 20 s
-/// - 3 consecutive failures: enter error state, reduce to 5 s
 @MainActor
 final class StatusPoller: ObservableObject {
-
-    // MARK: Published
 
     @Published private(set) var latestStatus: ServiceStatus?
     @Published private(set) var lastError: APIError?
     @Published private(set) var consecutiveFailures: Int = 0
     @Published var isWindowVisible: Bool = true
 
-    /// Set to `true` when monitoring is active (drives poll frequency).
     var isMonitoring: Bool = false
-
-    // MARK: Private
 
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "StatusPoller")
     private let client: FallGuardAPIClient
@@ -39,8 +26,6 @@ final class StatusPoller: ObservableObject {
         self.client = client
     }
 
-    // MARK: Public
-
     func start() {
         guard task == nil else { return }
         logger.info("Status poller started")
@@ -53,13 +38,10 @@ final class StatusPoller: ObservableObject {
         logger.info("Status poller stopped")
     }
 
-    /// Reset the failure counter (call when service reconnects).
     func resetFailures() {
         consecutiveFailures = 0
         lastError = nil
     }
-
-    // MARK: Private
 
     private var currentInterval: TimeInterval {
         if consecutiveFailures >= maxConsecutiveFailures {
@@ -76,7 +58,6 @@ final class StatusPoller: ObservableObject {
             do {
                 let status = try await client.status()
 
-                // Ignore stale responses (sequence must be strictly increasing)
                 if status.sequence > lastSequence {
                     lastSequence = status.sequence
                     latestStatus = status

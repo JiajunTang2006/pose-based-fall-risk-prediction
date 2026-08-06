@@ -1,5 +1,3 @@
-"""Five-fold grouped cross-validation for tree and skeleton-feature fusion models."""
-
 from __future__ import annotations
 
 import argparse

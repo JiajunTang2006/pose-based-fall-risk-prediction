@@ -30,8 +30,6 @@ from fall_prediction.sensitivity import (
     sensitivity_thresholds,
 )
 
-# Relative imports work when running as `python -m fall_prediction_desktop`.
-# Absolute imports work inside a PyInstaller bundle where relative imports fail.
 try:
     from .runner import PredictionJob, ensure_repo_on_path, find_app_root, run_prediction_job, safe_filename
     from .paths import media_output_dir, user_data_dir
@@ -57,10 +55,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AppSettings:
-    sensitivity: str = DEFAULT_SENSITIVITY   # "low" | "medium" | "high"
+    sensitivity: str = DEFAULT_SENSITIVITY
     camera_index: int = 0
-    theme: str = "system"                    # "light" | "dark" | "system"
-    lang: str = "en"                         # "en" | "zh"
+    theme: str = "system"
+    lang: str = "en"
     sound_alert: bool = True
     popup_alert: bool = False
     start_on_boot: bool = False
@@ -71,8 +69,6 @@ class AppSettings:
 
 
 def load_settings(app_root: Path) -> AppSettings:
-    # Read the canonical user-data file first, then the legacy app-root file
-    # solely for one-time migration from older source builds.
     for path in (user_data_dir() / SETTINGS_FILENAME, app_root / SETTINGS_FILENAME):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -103,9 +99,6 @@ def save_settings(app_root: Path, settings: AppSettings) -> None:
         "minimize_to_tray": str(settings.minimize_to_tray).lower(),
     }
 
-    # SQLite is the source of truth.  The JSON write below is retained only
-    # for migration compatibility with older builds and may be unwritable
-    # inside a signed .app bundle.
     try:
         from .database.database import get_database
     except ImportError:
@@ -146,33 +139,23 @@ def save_settings(app_root: Path, settings: AppSettings) -> None:
             encoding="utf-8",
         )
     except OSError:
-        pass  # Non-critical — settings just won't persist this session
+        pass
 
 
 def scan_camera_indices() -> list[int]:
-    """Return only the built-in Mac camera index to avoid activating iPhone Continuity Camera.
-
-    NOTE: This function deliberately returns a hard-coded [0] rather than
-    enumerating all available camera devices (e.g. via AVFoundation).
-    Enumerating cameras on macOS can trigger iPhone Continuity Camera
-    activation prompts, which is disruptive and slow.  Users who need a
-    different camera index can change it in settings.
-    """
     return [0]
 SINGLE_IMAGE_REPEAT_FRAMES = 24
 
-
-# ---- Profile system ----
 
 PROFILES_FILENAME = "profiles.json"
 
 
 @dataclass
 class FallEvent:
-    timestamp: str       # ISO 8601 with timezone
-    risk_score: int      # 0-100
-    state: str           # "Pre-fall" or "Fall"
-    detail: str          # Human-readable description
+    timestamp: str
+    risk_score: int
+    state: str
+    detail: str
 
 
 @dataclass
@@ -210,7 +193,6 @@ class ProfileManager:
             self.create("Default")
 
     def _sync_repository(self) -> None:
-        """Migrate legacy profiles, then reload SQLite as the source of truth."""
         legacy_profiles = dict(self.profiles)
         legacy_active_id = self.active_id
         for profile in legacy_profiles.values():
@@ -299,7 +281,7 @@ class ProfileManager:
             if profile_id not in self.profiles:
                 return False
             if len(self.profiles) <= 1:
-                return False  # Keep at least one profile
+                return False
             if self._repository is not None and not self._repository.delete(profile_id):
                 return False
             del self.profiles[profile_id]
@@ -417,7 +399,7 @@ class MediaImportProcessor:
         self._worker: threading.Thread | None = None
         self._capture = None
         self._snapshot = MediaJobSnapshot()
-        self._repos = None  # AppRepositories — attached by the application bootstrap
+        self._repos = None
 
     def update_settings(self, settings: AppSettings) -> None:
         with self._lock:
@@ -884,23 +866,18 @@ def media_picker_applescript() -> list[str]:
         "panel's setCanChooseDirectories:true",
         "panel's setAllowsMultipleSelection:true",
         "panel's setTreatsFilePackagesAsDirectories:false",
-        # Allow common video and image file types so files are selectable
-        # rather than greyed out on newer macOS versions.
         "set allowedTypes to current application's NSMutableArray's array()",
-        # Video UTIs
         "allowedTypes's addObject:\"public.mpeg-4\"",
         "allowedTypes's addObject:\"com.apple.quicktime-movie\"",
         "allowedTypes's addObject:\"public.avi\"",
         "allowedTypes's addObject:\"org.matroska.mkv\"",
         "allowedTypes's addObject:\"public.mpeg\"",
-        # Image UTIs
         "allowedTypes's addObject:\"public.png\"",
         "allowedTypes's addObject:\"public.jpeg\"",
         "allowedTypes's addObject:\"com.microsoft.bmp\"",
         "allowedTypes's addObject:\"public.tiff\"",
         "allowedTypes's addObject:\"public.heic\"",
         "allowedTypes's addObject:\"public.heif\"",
-        # Also allow public.data so folders and any file can still be picked.
         "allowedTypes's addObject:\"public.data\"",
         "panel's setAllowedFileTypes:allowedTypes",
         'panel\'s setPrompt:"Import"',
@@ -921,10 +898,6 @@ def media_picker_applescript() -> list[str]:
 
 
 def save_panel_applescript(default_name: str = "annotated_video.mp4") -> str:
-    """Open a native NSSavePanel so the user can choose where to save the output.
-
-    Returns the chosen path as a string, or an empty string if the user cancels.
-    """
     script = [
         'use framework "AppKit"',
         "use scripting additions",
@@ -960,9 +933,9 @@ class CameraMonitor:
         self.app_root = app_root
         self.settings = settings or AppSettings()
         self.profile_manager: ProfileManager | None = None
-        self._repos = None  # AppRepositories — set by main_native() after DB init
-        self._session_id: str | None = None  # current monitoring session ID
-        self._profile_id: str | None = None  # profile bound to the current session
+        self._repos = None
+        self._session_id: str | None = None
+        self._profile_id: str | None = None
         self.output_dir = writable_output_root(app_root) / "camera_sessions"
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -972,8 +945,8 @@ class CameraMonitor:
         self._jpeg_frame: bytes | None = None
         self._snapshot = MonitorSnapshot()
         self._last_activity_state = ""
-        self._fsm = None       # RiskStateMachine — created in _run_camera_loop
-        self._event_svc = None  # EventService — created in _run_camera_loop
+        self._fsm = None
+        self._event_svc = None
         import atexit
         atexit.register(self._cleanup_db)
         self._debug_log("CameraMonitor.__init__", f"app_root={app_root}")
@@ -981,7 +954,6 @@ class CameraMonitor:
 
     @staticmethod
     def _debug_log(step: str, detail: str = "") -> None:
-        """Write a debug trace to a temp file so we can diagnose the built .app."""
         try:
             from datetime import datetime
             from pathlib import Path
@@ -1050,11 +1022,10 @@ class CameraMonitor:
             )
             self._jpeg_frame = None
             self._last_activity_state = ""
-            self._fsm = None       # Reset FSM for fresh session
-            self._event_svc = None  # Reset EventService for fresh session
+            self._fsm = None
+            self._event_svc = None
             self._debug_log("start", "snapshot set to loading=True")
 
-        # Create a monitoring session in the database (Task 4)
         self._session_id = None
         self._profile_id = None
         try:
@@ -1087,8 +1058,6 @@ class CameraMonitor:
         ):
             worker.join(timeout=2.0)
             if worker.is_alive():
-                # Unblock a driver-level capture.read() that did not observe
-                # the stop event promptly, then wait for the finally block.
                 with self._lock:
                     capture = self._capture
                 if capture is not None:
@@ -1180,7 +1149,7 @@ class CameraMonitor:
         estimator = None
         frame_processor = None
         event_media = None
-        frame_index = 0  # Initialized early so finally block always has it
+        frame_index = 0
         risk_sum = 0.0
         risk_count = 0
         peak_risk = 0.0
@@ -1268,7 +1237,6 @@ class CameraMonitor:
                     predictor = self._create_predictor_for_sensitivity(sensitivity)
                 prediction = predictor.predict(landmarks, frame_index, timestamp)
 
-                # Lazily initialize the shared business frame processor.
                 if frame_processor is None:
                     try:
                         from .alert_service import SoundAlertService
@@ -1318,7 +1286,6 @@ class CameraMonitor:
                 if display_state != self._last_activity_state and display_state in {"Normal", "Pre-fall", "Fall"}:
                     self._last_activity_state = display_state
                     self._add_activity(level, title, risk_percent)
-                    # Record fall/pre-fall events to the active profile (legacy JSON)
                     if display_state in {"Pre-fall", "Fall"} and self.profile_manager:
                         self.profile_manager.record_fall(display_state, risk_percent, detail)
                 _, buffer = cv2.imencode(".jpg", frame)
@@ -1360,8 +1327,6 @@ class CameraMonitor:
                 environment="Check Setup",
             )
         finally:
-            # Each cleanup step is individually protected so one failure
-            # does not skip the remaining steps.
             try:
                 if estimator:
                     estimator.close()
@@ -1398,18 +1363,16 @@ class CameraMonitor:
                     event_media.close()
                 except Exception:
                     pass
-            # Close the shared frame pipeline before finalizing its session.
             if frame_processor is not None:
                 try:
                     frame_processor.close()
                 except Exception:
                     pass
-            # ── Task 4: close the monitoring session in the database ──
             if self._session_id is not None and self._repos is not None:
                 try:
-                    self._repos.samples.commit()  # flush remaining samples
+                    self._repos.samples.commit()
                     snap = self._snapshot
-                    total_frames = frame_index  # always defined (initialized before try block)
+                    total_frames = frame_index
                     total_events = self._repos.events.count_for_session(self._session_id)
                     self._repos.sessions.stop(
                         session_id=self._session_id,
@@ -1537,7 +1500,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_DELETE(self) -> None:
-        """Handle DELETE requests — used for profile deletion."""
         path = urlparse(self.path).path
         if path.startswith("/api/profiles/"):
             self._handle_delete_profile(path)
@@ -1547,7 +1509,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
-    # ---- Settings API ----
 
     def _handle_get_settings(self) -> None:
         s = self.server.settings
@@ -1638,7 +1599,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "lang": lang})
 
     def _handle_open_settings(self) -> None:
-        """Open the Settings page in a separate native window."""
         import tempfile
         import traceback
 
@@ -1651,7 +1611,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
 
         _log(f"=== Opening settings window === url={url}")
 
-        # Approach 1: dispatch_async via pyobjc Foundation (standard Cocoa)
         try:
             from Foundation import dispatch_async, dispatch_get_main_queue
 
@@ -1667,7 +1626,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
                         min_size=(500, 500),
                         resizable=True,
                     )
-                    # Append success marker after window creation
                     with open(str(log_path), "a") as f:
                         f.write("SUCCESS: window created via dispatch_async\n")
                 except Exception as inner_exc:
@@ -1680,7 +1638,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             _log(f"dispatch_async setup failed: {exc}\n{traceback.format_exc()}")
 
-            # Approach 2: try direct call (may work in some pywebview versions)
             try:
                 import webview
 
@@ -1702,13 +1659,11 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
 
-        # Write all log lines
         try:
             log_path.write_text("\n".join(lines) + "\n")
         except Exception:
             pass
 
-    # ---- Profile API ----
 
     def _handle_create_profile(self) -> None:
         try:
@@ -1727,7 +1682,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "profile": profile.to_dict()})
 
     def _handle_activate_profile(self, path: str) -> None:
-        # Path format: /api/profiles/{id}/activate
         parts = path.split("/")
         if len(parts) < 4:
             self._send_json({"ok": False, "error": "Missing profile ID."}, status=HTTPStatus.BAD_REQUEST)
@@ -1740,7 +1694,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "activeId": profile_id})
 
     def _handle_delete_profile(self, path: str) -> None:
-        # Path format: /api/profiles/{id}
         parts = path.split("/")
         if len(parts) < 3:
             self._send_json({"ok": False, "error": "Missing profile ID."}, status=HTTPStatus.BAD_REQUEST)
@@ -1752,7 +1705,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True})
 
-    # ---- Static file serving ----
 
     def _serve_static(self, relative: str, content_type: str) -> None:
         path = (self.server.web_root / relative).resolve()
@@ -1825,10 +1777,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _serve_latest_frame(self) -> None:
-        """Serve the most recent camera frame as a single JPEG image.
-
-        WKWebView (Safari's engine) does not render MJPEG streams in <img>
-        tags, so the front-end falls back to polling this endpoint."""
         frame = self.server.monitor.jpeg_frame()
         if frame is None:
             self.send_error(HTTPStatus.NO_CONTENT, "No frame available yet")
@@ -1872,7 +1820,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
         try:
             uploads = self._parse_media_upload(content_type, length)
             try:
-                # Let the user choose where to save the output.
                 output_dir = self._pick_output_dir_for_uploads(uploads)
                 if output_dir is None:
                     self._send_json({"ok": True, "canceled": True})
@@ -1904,7 +1851,6 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "canceled": True})
                 return
 
-            # Let the user choose where to save the annotated output video.
             output_dir = self._pick_output_dir(paths)
             if output_dir is None:
                 self._send_json({"ok": True, "canceled": True})
@@ -1918,22 +1864,15 @@ class FallGuardRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def _pick_output_dir(self, paths: list[Path]) -> Path | None:
-        """Show a save panel so the user can choose where to output the annotated video.
-
-        Returns the parent directory of the chosen path, or None if cancelled.
-        """
-        # Build a sensible default filename based on the input.
         input_name = paths[0].stem if len(paths) == 1 and paths[0].is_file() else "annotated"
         default_name = safe_filename(f"{input_name}_annotated.mp4")
         chosen = save_panel_applescript(default_name)
         if not chosen:
             return None
         output_path = Path(chosen)
-        # Use the parent directory as the output dir; the filename is auto-generated.
         return output_path.parent
 
     def _pick_output_dir_for_uploads(self, uploads: list[UploadedMediaFile]) -> Path | None:
-        """Show a save panel for browser-uploaded media."""
         if not uploads:
             return None
         input_stem = Path(uploads[0].filename).stem or "media"
@@ -2146,10 +2085,8 @@ def _run_native_window(
     monitor: CameraMonitor,
     url: str,
 ) -> None:
-    """Launch the FallGuard UI inside a native macOS window using pywebview."""
     import webview
 
-    # Start the HTTP server in a daemon thread so it runs alongside the GUI loop.
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
@@ -2162,17 +2099,14 @@ def _run_native_window(
         resizable=True,
     )
 
-    # Block until the user closes the window.
     webview.start()
 
-    # Cleanup after the window is closed.
     monitor.stop()
     server.shutdown()
     server_thread.join(timeout=3)
 
 
 def connect_and_show(url: str) -> None:
-    """Open a native pywebview window connected to an already-running server."""
     import webview
 
     webview.create_window(
@@ -2187,11 +2121,8 @@ def connect_and_show(url: str) -> None:
 
 
 def main_native(argv: list[str] | None = None) -> None:
-    """Launch FallGuard with native PySide6 UI (no web/HTTP layer)."""
     from PySide6.QtGui import QAction, QIcon
     from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
-    # Relative imports work when running as `python -m fall_prediction_desktop`.
-    # Absolute imports work inside a PyInstaller bundle where relative imports fail.
     try:
         from .ui.main_window import MainWindow
     except ImportError:
@@ -2200,20 +2131,15 @@ def main_native(argv: list[str] | None = None) -> None:
     app_root = find_app_root()
     ensure_repo_on_path(app_root)
 
-    # Create QApplication before database initialization so startup failures
-    # are visible in a normal macOS dialog even in a windowed bundle.
     qt_app = QApplication(sys.argv[:1] if argv is None else argv)
     qt_app.setApplicationName("FallGuard")
     qt_app.setOrganizationName("FallGuard")
 
-    # Resolve resource directories — inside a PyInstaller bundle all data
-    # folders (assets, web, models, configs) are at the _MEIPASS root.
     bundle_root = Path(getattr(sys, "_MEIPASS", app_root))
     assets_root = bundle_root / "assets"
     if not assets_root.is_dir():
         assets_root = app_root / "assets"
 
-    # locales may live under assets/locales/ (build artifact) or web/locales/ (source).
     locales_dir = assets_root / "locales"
     if not locales_dir.is_dir():
         web_root = bundle_root / "web"
@@ -2221,7 +2147,6 @@ def main_native(argv: list[str] | None = None) -> None:
             web_root = app_root / "web"
         locales_dir = web_root / "locales"
 
-    # Init backend components — database layer (Tasks 1-4 from dev workflow)
     try:
         from .database.init_db import init_app_database
     except ImportError:
@@ -2236,15 +2161,12 @@ def main_native(argv: list[str] | None = None) -> None:
         )
         return
 
-    # Load settings from DB (with JSON fallback for migration)
     settings = load_settings(app_root)
-    # Migrate: if JSON has settings but DB doesn't, seed DB from JSON
     if repos.settings.get("language", "") == "":
         repos.settings.set("language", settings.lang)
         repos.settings.set("theme", settings.theme)
         repos.settings.set("sensitivity", normalize_sensitivity(settings.sensitivity))
     else:
-        # Override JSON settings from DB (single source of truth)
         settings.lang = repos.settings.get("language", settings.lang)
         settings.theme = repos.settings.get("theme", settings.theme)
         settings.sensitivity = normalize_sensitivity(repos.settings.get("sensitivity", settings.sensitivity))
@@ -2256,7 +2178,7 @@ def main_native(argv: list[str] | None = None) -> None:
     profile_manager = ProfileManager(app_root, repository=repos.profiles)
     monitor = CameraMonitor(app_root, settings)
     monitor.profile_manager = profile_manager
-    monitor._repos = repos  # Attach DB repositories for session/event tracking
+    monitor._repos = repos
     media_processor = MediaImportProcessor(app_root, settings)
     media_processor._repos = repos
 
@@ -2267,7 +2189,6 @@ def main_native(argv: list[str] | None = None) -> None:
     if not app_icon.isNull():
         qt_app.setWindowIcon(app_icon)
 
-    # Create main window
     window = MainWindow(
         monitor=monitor,
         media_processor=media_processor,

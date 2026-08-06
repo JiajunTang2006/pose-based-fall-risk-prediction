@@ -1,11 +1,6 @@
 import AppKit
 import OSLog
 
-// 菜单栏 FallGuard 小图标的文案：Resources/*/Localizable.strings 中的 Menu Bar 分组。
-/// Manages the macOS menu bar icon and its context menu.
-///
-/// The menu bar shows the current monitoring state and provides
-/// quick access to Start, Stop, Settings, and Quit.
 @MainActor
 final class MenuBarController: NSObject {
 
@@ -34,7 +29,6 @@ final class MenuBarController: NSObject {
             button.title = ""
         }
 
-        // Build the menu
         let menu = NSMenu()
 
         let statusItem = NSMenuItem(
@@ -96,7 +90,6 @@ final class MenuBarController: NSObject {
 
         item.menu = menu
 
-        // Periodic status text update
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateStatusText()
@@ -128,8 +121,6 @@ final class MenuBarController: NSObject {
         }
     }
 
-    // MARK: Actions
-
     @objc private func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
         for window in NSApp.windows where window.canBecomeMain {
@@ -154,7 +145,6 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func quitApp() {
-        // Confirm if monitoring
         if store?.isMonitoring == true {
             let alert = NSAlert()
             alert.messageText = NSLocalizedString("alert.quit.monitoring.title", comment: "")

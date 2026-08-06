@@ -1,5 +1,3 @@
-"""Small-validation-set probability calibration for fall classifiers."""
-
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -11,7 +9,6 @@ def apply_temperature_scaling(
     probabilities: np.ndarray,
     temperature: float,
 ) -> np.ndarray:
-    """Apply scalar temperature scaling when only softmax probabilities remain."""
     values = np.asarray(probabilities, dtype=np.float64)
     if values.ndim != 2:
         raise ValueError("probabilities must be a two-dimensional array")
@@ -31,7 +28,6 @@ def fit_temperature_scaling(
     y_true: Sequence[str],
     classes: Sequence[str],
 ) -> dict[str, Any]:
-    """Choose one temperature by validation negative log likelihood."""
     values = np.asarray(probabilities, dtype=np.float64)
     class_names = [str(label) for label in classes]
     label_to_index = {label: index for index, label in enumerate(class_names)}
@@ -93,11 +89,6 @@ def tune_prefall_alert_threshold_with_recall_floor(
     *,
     recall_floor: float = 0.80,
 ) -> dict[str, Any]:
-    """Find the most precise early-alert threshold that preserves target recall.
-
-    Existing Pre-fall and Fall states are retained. The threshold can only
-    promote a Normal state to a low-level Pre-fall alert, matching runtime use.
-    """
     from .train_model import build_validation_metrics, prefall_binary_metrics
 
     recall_floor = float(recall_floor)
@@ -169,7 +160,6 @@ def prefall_alert_predictions(
     probabilities: np.ndarray,
     threshold: float,
 ) -> list[str]:
-    """Promote Normal to Pre-fall when calibrated probability crosses a threshold."""
     class_names = [str(label) for label in classes]
     prefall_index = class_names.index("Pre-fall")
     values = np.asarray(probabilities)

@@ -1,5 +1,3 @@
-"""Train a lightweight causal TCN on the existing fall-prediction windows."""
-
 from __future__ import annotations
 
 import argparse

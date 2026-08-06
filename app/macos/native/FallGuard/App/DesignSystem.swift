@@ -1,27 +1,15 @@
 import SwiftUI
 
-// MARK: - Design Tokens
-
-/// FallGuard Material Design 3 color and spacing tokens.
-///
-/// All colors adapt to light/dark mode via `@Environment(\.colorScheme)`.
 enum FallGuardColors {
 
-    // MARK: Primary
-
-    // Kept as compatibility aliases for older call sites.  The product accent
-    // follows the green palette used by the original desktop application.
     static let blue        = Color(hex: "#22C55E")
     static let blueDark    = Color(hex: "#16A34A")
     static let blueActive  = Color(hex: "#15803D")
     static let blueLight   = Color(hex: "#EAF7EF")
     static let blueBorder  = Color(hex: "#BBF7D0")
 
-    // Dark mode primary
     static let blueDarkMode    = Color(hex: "#4ADE80")
     static let blueLightDark   = Color(hex: "#123D24")
-
-    // MARK: Semantic
 
     static let green       = Color(hex: "#22C55E")
     static let greenLight  = Color(hex: "#EAF7EF")
@@ -38,8 +26,6 @@ enum FallGuardColors {
     static let redDark     = Color(hex: "#C5221F")
     static let redBorder   = Color(hex: "#FAD2CF")
 
-    // MARK: Surface (light)
-
     static let bgLight        = Color(hex: "#F4FAF6")
     static let panelLight     = Color(hex: "#FFFFFF")
     static let sidebarBgLight = Color(hex: "#F5FBF7")
@@ -47,15 +33,11 @@ enum FallGuardColors {
     static let hoverLight     = Color(hex: "#EEF8F1")
     static let navActiveLight = Color(hex: "#EAF7EF")
 
-    // MARK: Surface (dark)
-
     static let bgDark         = Color(hex: "#08150E")
     static let panelDark      = Color(hex: "#0E1C14")
     static let sidebarBgDark  = Color(hex: "#0A1810")
     static let hoverDark      = Color(hex: "#14291B")
     static let navActiveDark  = Color(hex: "#123D24")
-
-    // MARK: Text
 
     static let textLight       = Color(hex: "#1F2937")
     static let textSecondaryLight = Color(hex: "#6B7280")
@@ -65,19 +47,12 @@ enum FallGuardColors {
     static let textSecondaryDark = Color(hex: "#CBD5E1")
     static let mutedDark       = Color(hex: "#94A3B8")
 
-    // MARK: Borders & Lines
-
     static let lineLight = Color(hex: "#D9E9DE")
     static let lineDark  = Color(hex: "#284331")
-
-    // MARK: Video
 
     static let videoBg   = Color(hex: "#111827")
     static let videoText = Color(hex: "#D1D5DB")
 
-    // MARK: Context-aware helpers
-
-    /// Returns the primary accent color for the given color scheme.
     static func primary(for scheme: ColorScheme) -> Color {
         scheme == .dark ? blueDarkMode : blue
     }
@@ -127,10 +102,6 @@ enum FallGuardColors {
     }
 }
 
-// MARK: - Ambient App Background
-
-/// A softly coloured backdrop that gives translucent panels something to blur.
-/// Decorative layers never participate in hit testing.
 struct FallGuardBackground: View {
     let scheme: ColorScheme
 
@@ -171,8 +142,6 @@ struct FallGuardBackground: View {
     }
 }
 
-// MARK: - Color Hex Initializer
-
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -197,8 +166,6 @@ extension Color {
     }
 }
 
-// MARK: - Spacing (8px grid)
-
 enum FallGuardSpacing {
     static let s4: CGFloat  = 4
     static let s8: CGFloat  = 8
@@ -212,8 +179,6 @@ enum FallGuardSpacing {
     static let s40: CGFloat = 40
 }
 
-// MARK: - Corner Radius
-
 enum FallGuardRadius {
     static let sm: CGFloat    = 8
     static let md: CGFloat    = 12
@@ -221,8 +186,6 @@ enum FallGuardRadius {
     static let xl: CGFloat    = 20
     static let full: CGFloat  = 9999
 }
-
-// MARK: - Typography
 
 enum FallGuardFont {
     static let caption2: Font = .system(size: 11)
@@ -236,8 +199,6 @@ enum FallGuardFont {
     static let hero: Font     = .system(size: 40, weight: .bold, design: .rounded)
 }
 
-// MARK: - Animation Durations
-
 enum FallGuardAnimation {
     static let fast: Double    = 0.15
     static let normal: Double  = 0.20
@@ -245,15 +206,11 @@ enum FallGuardAnimation {
     static let sidebar: Double = 0.55
 }
 
-// MARK: - Shadows
-
-/// Shadow color for card elevation — light in light mode, stronger in dark.
 func fallGuardShadowColor(for scheme: ColorScheme) -> Color {
     scheme == .dark ? .black.opacity(0.36) : Color(hex: "#14532D").opacity(0.1)
 }
 
 extension View {
-    /// Apply FallGuard card shadow.
     func fallGuardCardShadow(scheme: ColorScheme) -> some View {
         self.shadow(color: fallGuardShadowColor(for: scheme), radius: 14, y: 6)
     }

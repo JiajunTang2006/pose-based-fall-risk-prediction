@@ -1,5 +1,3 @@
-"""Export reviewed FallGuard event clips as a training-ready dataset package."""
-
 from __future__ import annotations
 
 import csv
@@ -31,7 +29,6 @@ def export_reviewed_dataset(
     *,
     package_name: str | None = None,
 ) -> ExportResult:
-    """Copy positive reviewed clips and write UR-style inclusive frame intervals."""
     destination_path = Path(destination).expanduser()
     if not destination_path.is_dir():
         raise ValueError("Export destination must be an existing directory.")

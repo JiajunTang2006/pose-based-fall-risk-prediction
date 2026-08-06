@@ -1,18 +1,12 @@
 import Foundation
 import OSLog
 
-/// Typed HTTP client for the FallGuard AI Service ``/api/v1`` endpoints.
-///
-/// Every method throws ``APIError`` on failure.  The client does **not**
-/// perform its own retries — that is the caller's responsibility.
 struct FallGuardAPIClient {
     let baseURL: URL
     let token: String
     let session: URLSession
 
     private let logger = Logger(subsystem: "com.fallguard.desktop", category: "APIClient")
-    // DTOs define explicit CodingKeys for the service's snake_case contract.
-    // Applying convertFromSnakeCase here as well would transform every key twice.
     private let decoder = JSONDecoder()
 
     init(baseURL: URL, token: String, session: URLSession = .shared) {
@@ -20,8 +14,6 @@ struct FallGuardAPIClient {
         self.token = token
         self.session = session
     }
-
-    // MARK: Health & Status
 
     func health() async throws -> ServiceHealth {
         try await get(path: "health", auth: false)
@@ -31,8 +23,6 @@ struct FallGuardAPIClient {
         try await get(path: "status")
     }
 
-    // MARK: Monitor
-
     func startMonitoring() async throws -> MonitorCommandResponse {
         try await post(path: "monitor/start")
     }
@@ -40,8 +30,6 @@ struct FallGuardAPIClient {
     func stopMonitoring() async throws -> MonitorCommandResponse {
         try await post(path: "monitor/stop")
     }
-
-    // MARK: Settings
 
     func getSettings() async throws -> ServiceSettings {
         try await get(path: "settings")
@@ -52,13 +40,9 @@ struct FallGuardAPIClient {
         return try await put(path: "settings", body: data)
     }
 
-    // MARK: Cameras
-
     func getCameras() async throws -> CameraListResponse {
         try await get(path: "cameras")
     }
-
-    // MARK: Profiles
 
     func getProfiles() async throws -> ProfileListResponse {
         try await get(path: "profiles")
@@ -81,8 +65,6 @@ struct FallGuardAPIClient {
     func deleteProfile(id: String) async throws -> OkResponse {
         try await delete(path: "profiles/\(id)")
     }
-
-    // MARK: Events
 
     func getEvents(limit: Int = 50, cursor: String? = nil,
                    profileId: String? = nil) async throws -> PaginatedResponse<EventDTO> {
@@ -127,13 +109,9 @@ struct FallGuardAPIClient {
         try await delete(path: "history")
     }
 
-    // MARK: Sessions
-
     func getSessions(limit: Int = 50) async throws -> PaginatedResponse<SessionDTO> {
         try await get(path: "sessions?limit=\(min(limit, 200))")
     }
-
-    // MARK: Import
 
     func createImport(paths: [String], outputDirectory: String?,
                       sensitivity: String) async throws -> ImportCreateResponse {
@@ -152,9 +130,6 @@ struct FallGuardAPIClient {
         try await get(path: "imports/\(id)")
     }
 
-    // MARK: Preview
-
-    /// Fetch the latest JPEG frame from the service.
     func latestFrame() async throws -> Data {
         var req = try makeRequest(path: "preview.jpg", method: "GET")
         req.timeoutInterval = 5
@@ -163,20 +138,15 @@ struct FallGuardAPIClient {
         return data
     }
 
-    /// Returns a streaming URL for MJPEG playback.
     func mjpegStreamURL() -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.path = "/api/v1/preview.mjpg"
         return components.url!
     }
 
-    // MARK: Shutdown
-
     func shutdown() async throws {
         let _: OkResponse = try await post(path: "shutdown")
     }
-
-    // MARK: Media
 
     func mediaContentURL(mediaId: String) -> URL {
         baseURL
@@ -185,8 +155,6 @@ struct FallGuardAPIClient {
             .appendingPathComponent(mediaId)
             .appendingPathComponent("content")
     }
-
-    // MARK: Private helpers
 
     private func get<T: Decodable>(path: String, auth: Bool = true) async throws -> T {
         var req = try makeRequest(path: path, method: "GET", auth: auth)
@@ -251,7 +219,6 @@ struct FallGuardAPIClient {
         }
 
         guard (200...299).contains(httpResp.statusCode) else {
-            // Try to decode a structured error
             if let apiErr = try? decoder.decode(APIErrorResponse.self, from: data) {
                 throw APIError.serviceError(apiErr.error)
             }
@@ -259,8 +226,6 @@ struct FallGuardAPIClient {
         }
     }
 }
-
-// MARK: - API Error
 
 enum APIError: LocalizedError {
     case transportError(Error)
@@ -275,14 +240,12 @@ enum APIError: LocalizedError {
         case .httpError(let code, _):
             return "HTTP \(code)"
         case .serviceError(let dto):
-            // Return the message key so the UI layer can localize it
             return dto.messageKey
         case .decodingError(let e):
             return "Decoding error: \(e.localizedDescription)"
         }
     }
 
-    /// Whether this error is retryable.
     var isRetryable: Bool {
         switch self {
         case .transportError: return true
@@ -292,7 +255,6 @@ enum APIError: LocalizedError {
         }
     }
 
-    /// The stable error code, if available.
     var errorCode: String? {
         if case .serviceError(let dto) = self { return dto.code }
         return nil

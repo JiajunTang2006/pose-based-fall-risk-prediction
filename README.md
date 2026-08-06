@@ -36,6 +36,67 @@ The runtime exposes two channels: a precision-oriented **final confirmed** state
 
 - **2026.08.06 — Reproducible public release:** Finalized the macOS application and reproducibility workflow, improved the documentation and dataset guidance, removed obsolete artifacts, and merged the reviewed project into `main`.
 
+<details>
+<summary><strong>Detailed Technical Evolution</strong></summary>
+
+### 1. Problem formulation and dataset construction
+
+The project started from the observation that conventional fall-detection systems often identify an event only after a person has already fallen. The task was therefore formulated as a three-state temporal classification problem: **Normal**, **Pre-fall**, and **Fall**.
+
+RGB camera sequences from UR Fall and UP-Fall were organized under a shared annotation protocol. Each labeled sequence was converted into 15-frame sliding windows with a stride of 3. Because Pre-fall is a short transitional state, its boundaries required motion-based drafting, interval refinement, and repeated review rather than simple video-level labels.
+
+### 2. Pose-based tree-model baseline
+
+YOLO Pose was used to extract 17 COCO body keypoints from each frame. The initial machine-learning pipeline converted these keypoints into engineered temporal features describing body geometry, posture, vertical displacement, velocity, angular motion, and acceleration.
+
+Tree-based classifiers were evaluated because they are suitable for relatively small structured datasets and provide stable inference on CPU. HistGradientBoosting was ultimately retained as the authoritative classifier for confirmed Normal, Pre-fall, and Fall decisions.
+
+HMM/Viterbi smoothing and temporal sensitivity profiles were added to reduce frame-to-frame instability and prevent isolated high-risk windows from immediately becoming confirmed fall events.
+
+### 3. Robustness under realistic visual conditions
+
+Early experiments showed that raw pose geometry was sensitive to camera distance, body scale, missing lower-body landmarks, and temporary occlusion. A standing calibration stage was therefore introduced to normalize motion and geometry features against an observed upright baseline.
+
+Upper-body measurements and structured partial-pose augmentation were added so the model could remain usable when some body regions were unavailable. Low-light preprocessing was also explored during development, while the final public pipeline focuses on standing calibration, visibility-aware features, and deterministic partial-pose handling.
+
+### 4. Cooperative dual-model prediction
+
+The tree model achieved comparatively stable precision but had limited recall for the short and underrepresented Pre-fall state. A second model was therefore introduced to learn skeleton dynamics directly.
+
+The fusion branch combines an **ST-GCN**, which models spatial relationships between body joints, with a **causal TCN**, which models temporal feature changes without using future frames. Instead of replacing the tree model, the two branches were assigned complementary roles:
+
+- The tree model produces the authoritative confirmed state.
+- The fusion model provides recall-oriented early-warning evidence.
+- Sustained agreement or strong temporal evidence can escalate the final alert.
+
+This design produces two outputs: a precision-oriented **final confirmed** state and a recall-oriented **early warning** advisory.
+
+### 5. Temporal and activity-aware postprocessing
+
+Window classification alone was not sufficient for a monitoring application because isolated predictions could produce unstable or implausible event sequences. The runtime therefore introduced explicit temporal rules for the expected **Normal → Pre-fall → Fall** progression.
+
+Confirmed Fall states are latched until sustained recovery is observed. A static-lying ADL filter additionally suppresses low-motion lying activities when there is no recent fall-like motion, while preserving events supported by rapid displacement, acceleration, or an already-confirmed transition chain.
+
+### 6. Leakage-aware evaluation
+
+The evaluation protocol evolved from ordinary model validation to grouped five-fold cross-validation. Windows originating from the same video or trial group are kept in the same outer fold, and the two UP-Fall camera views belonging to the same subject, activity, and trial are never divided between training and evaluation.
+
+The final evaluation includes window-level metrics, pooled confusion matrices, transition behavior, and sequence-level detection and false-alert analysis. This makes the reported results more representative than an evaluation based on randomly shuffled, overlapping windows.
+
+### 7. From algorithm prototype to macOS application
+
+FallGuard initially used a Python backend with an HTML, CSS, and JavaScript interface displayed through pywebview. This version established the real-time camera pipeline, skeleton visualization, risk display, menu-bar controls, localization, and application packaging.
+
+The application was later migrated to a native SwiftUI client backed by an authenticated Python service bound to localhost. The product layer added stable risk states, SQLite persistence, monitoring sessions, event history, notifications, imported-media analysis, event video evidence, manual annotation feedback, and dataset export.
+
+### 8. Reproducibility and public presentation
+
+The final stage consolidated the algorithm and macOS runtime around the same model interfaces and decision policy. Exact dependency versions, model artifacts, fold-specific evaluation models, machine-readable JSON results, SHA-256 checks, automated tests, and reproducible result figures were added.
+
+Internal review files, obsolete models, migration notes, intermediate fold reports, generated metadata, and the standalone PDF report were removed so the public repository presents the final method and evidence without exposing unnecessary development artifacts.
+
+</details>
+
 ## Results
 
 The final evaluation uses grouped five-fold cross-validation. Camera views belonging to the same UP-Fall trial remain in the same outer fold to reduce view leakage. All values below are mean ± standard deviation across the five outer folds.

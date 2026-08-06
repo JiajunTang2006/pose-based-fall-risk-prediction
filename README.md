@@ -26,7 +26,7 @@ The project predicts three states—**Normal**, **Pre-fall**, and **Fall**—fro
 
 The runtime exposes two channels: a precision-oriented **final confirmed** state and a recall-oriented **early warning** advisory.
 
-![System overview](figures/readme/systemoverview.png)
+![System overview](figures/readme/system_overview.png)
 
 ## Development Timeline
 
@@ -319,3 +319,4 @@ The README figures are regenerated directly from the final JSON report:
 ```bash
 python figures/source/generate_readme_figures.py
 ```
+

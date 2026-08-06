@@ -15,6 +15,7 @@ _PARENT_CHECK_INTERVAL = 2.0
 
 
 class ServiceLifecycle:
+    """Coordinate signal handling, parent-process monitoring, and clean shutdown."""
 
     def __init__(self, parent_pid: int | None = None) -> None:
         self._shutdown_requested = threading.Event()

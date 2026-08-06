@@ -37,6 +37,7 @@ _DEFAULT_THRESHOLDS = {
 
 
 class RiskStateMachine:
+    """Debounce frame-level risk into stable product states and change events."""
 
     def __init__(self, thresholds: dict | None = None,
                  fps: float = 20.0,

@@ -9,7 +9,7 @@
 ![Algorithm tests](https://img.shields.io/badge/algorithm%20tests-104%20passed-2EA44F)
 ![macOS tests](https://img.shields.io/badge/macOS%20tests-106%20passed-2EA44F)
 
-[Results](#results) · [Reproduction](#reproduction) · [Runtime inference](#runtime-inference) · [macOS app](#macos-app) · [Full report](reports/fall_prediction_final_report.pdf)
+[Results](#results) · [Datasets](#datasets) · [Reproduction](#reproduction) · [Runtime inference](#runtime-inference) · [macOS app](#macos-app)
 
 </div>
 
@@ -57,9 +57,34 @@ Both deployed outputs detect Fall in **76 of 78 Fall sequences (97.44%)**. On 39
 
 <sub>The sequence chart intentionally uses a restricted detection-rate axis so the differences remain visible; exact values are printed beside each point.</sub>
 
-## Data and evaluation protocol
+## Datasets
 
-The reported experiments combine UR Fall and UP-Fall material into grouped temporal windows.
+The experiments use the RGB camera streams from two public fall-detection datasets. Raw media is not redistributed by this repository.
+
+| Dataset | Original content | Use in this project |
+| --- | --- | --- |
+| [UR Fall Detection Dataset](https://fenix.ur.edu.pl/~mkepski/ds/uf.html) | 30 Fall and 40 activity-of-daily-living (ADL) sequences captured with Kinect cameras and accelerometers | RGB image sequences only; YOLO Pose extracts 17 COCO keypoints |
+| [UP-Fall Detection Dataset](https://doi.org/10.3390/s19091988) | 17 healthy young participants performing 6 ADLs and 5 simulated falls, with 3 trials per activity and multiple sensor modalities | The two camera views only; wearable, ambient, infrared, EEG, and other sensor channels are not used |
+
+UR Fall is published for non-commercial academic use under the terms stated on its official dataset page. UP-Fall users should review the current terms provided by the dataset authors. Downloading either dataset is the user's responsibility, and use of the data does not imply clinical validity or permission for commercial deployment.
+
+### Local data layout
+
+Place the downloaded RGB videos or image-sequence directories under:
+
+```text
+data/videos/
+├── urfall/
+└── upfall/
+```
+
+The exporter discovers `.mp4`, `.avi`, `.mov`, and `.mkv` files as well as directories containing image sequences. Source stems must match the `video` column in `data/ur_up_train_drop60f_15pct_annotations.csv`. For example, UP-Fall inputs use identifiers such as `Subject1Activity1Trial1Camera1`, while UR Fall inputs use identifiers such as `fall-01-cam0-rgb` and `adl-01-cam0-rgb`.
+
+UP-Fall camera views from the same subject, activity, and trial are assigned to the same outer fold. This pairing is required to prevent the second camera view of a trial from leaking into evaluation.
+
+### Evaluation subset
+
+The reported experiments combine the selected UR Fall and UP-Fall visual sequences into grouped temporal windows.
 
 | Item | Value |
 | --- | ---: |
@@ -74,7 +99,7 @@ The reported experiments combine UR Fall and UP-Fall material into grouped tempo
 | Evaluation | Grouped 5-fold cross-validation |
 | Random seed | 42 |
 
-The raw videos and generated feature exports are not included in Git because of dataset distribution constraints and repository size. Users must obtain the datasets under their applicable terms and place the media under `data/videos/` before running extraction.
+The generated feature exports are also excluded from Git because of repository size. The tracked annotations, final model artifacts, and machine-readable evaluation results are sufficient to inspect the final protocol, but raw-media preprocessing requires the user-supplied datasets.
 
 ## Repository layout
 
@@ -82,9 +107,9 @@ The raw videos and generated feature exports are not included in Git because of 
 | --- | --- |
 | `fall_prediction/` | Pose processing, feature extraction, models, training, and runtime inference |
 | `scripts/` | Cross-validation, tuning, evaluation, and final-result verification |
-| `data/` | Versioned interval annotations and review metadata |
+| `data/` | Versioned interval annotations |
 | `models/` | Final tree, fusion, pose, and fold-specific model artifacts |
-| `reports/` | Machine-readable evaluation results and the final PDF report |
+| `reports/` | Machine-readable training and evaluation results |
 | `figures/` | Reproducible README figures and their generation source |
 | `tests/` | Algorithm unit tests |
 | `app/macos/` | Native SwiftUI application and local Python service |
@@ -123,7 +148,7 @@ shasum -a 256 -c FINAL_ARTIFACTS.sha256
 
 Expected result: **104 tests pass**, and every tracked final artifact reports `OK`.
 
-### 2. Regenerate the final evaluation report
+### 2. Regenerate the final evaluation JSON
 
 Byte-for-byte regeneration additionally requires the feature CSV files produced during preprocessing under `outputs/features/`. With those files available:
 
@@ -214,9 +239,8 @@ See the [macOS application guide](app/macos/README.md) for setup, architecture, 
 - Cooperative postprocessing was developed on the available project data and should be validated prospectively.
 - End-to-end latency, resource usage, clinical utility, and real-world alert burden have not been benchmarked.
 
-## Report and machine-readable evidence
+## Machine-readable evidence
 
-- [Final experimental report (PDF)](reports/fall_prediction_final_report.pdf)
 - [Final grouped five-fold results (JSON)](reports/dual_model_tuned_static_lying_postprocess_5fold_cv.json)
 - [Full outer-fold fusion report (JSON)](reports/fusion_grouped_5fold_cv_full_outer.json)
 - [Figure generation source](figures/source/generate_readme_figures.py)

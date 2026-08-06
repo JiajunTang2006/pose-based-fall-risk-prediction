@@ -26,6 +26,7 @@ class ProcessedFrameState:
 
 
 class FrameBusinessProcessor:
+    """Convert frame predictions into persisted samples, events, and state changes."""
 
     def __init__(
         self,

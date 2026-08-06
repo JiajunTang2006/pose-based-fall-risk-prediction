@@ -32,6 +32,7 @@ class StaticLyingADLDecision:
 
 
 class StaticLyingADLFilter:
+    """Suppress static lying ADLs without overriding recent fall motion."""
 
     def __init__(
         self,

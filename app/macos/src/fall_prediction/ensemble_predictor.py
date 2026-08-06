@@ -26,6 +26,7 @@ class DualModelDecision:
 
 
 class DualModelDecisionEngine:
+    """Keep tree predictions authoritative while exposing fusion-only advisories."""
 
     def __init__(self, fusion_fall_confirmation_steps: int = DEFAULT_FUSION_FALL_CONFIRMATION_STEPS) -> None:
         if fusion_fall_confirmation_steps < 1:
@@ -116,6 +117,7 @@ class DualModelDecisionEngine:
 
 
 class DualModelFallPredictor:
+    """Run the tree and fusion branches through the cooperative decision policy."""
 
     def __init__(
         self,

@@ -235,6 +235,7 @@ class PostureEvidence:
 
 
 class TemporalSequenceGate:
+    """Stabilize temporal transitions and latch confirmed Fall states until recovery."""
 
     def __init__(
         self,

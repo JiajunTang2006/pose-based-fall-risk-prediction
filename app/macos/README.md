@@ -138,16 +138,20 @@ CREATE_DMG=1 \
 ## 当前功能
 
 - Web Dashboard 风格界面，接近真实产品页面。
-- 默认使用 YOLO 姿态识别 + 机器学习跌倒预测模型。
+- 原生应用默认使用 YOLO Pose、robust tree classifier 和 skeleton-feature fusion model 的协作预测链路。
 - 实时显示摄像头画面、骨架点、当前状态、风险分数、事件记录和帧率。
 - Camera 与 Import Media 共用同一业务帧处理层，统一生成 Session、风险样本和事件媒体证据。
 - 确认风险状态后可以播放本地声音；菜单栏图标提供显示、开始、停止和退出操作。
 - 支持 macOS 系统通知、通知权限状态提示和登录后自动启动。
-- 默认加载上半身增强模型，支持站立基准校准和部分遮挡特征。
+- 支持站立基准校准、部分遮挡特征、融合模型提前预警和静态躺姿 ADL 后处理。
 - Fall 必须经过近期 Normal → 已确认 Pre-fall → Fall 的连续事件链。
 - 已确认 Fall 会保持到持续 Normal 恢复，避免 Fall/Normal 状态闪烁。
 
-当前模型文件：`models/yolo_tail60_prefall_accel_upperbody_classifier.joblib`。
+当前原生应用使用以下运行时模型：
+
+- `models/yolo26n-pose.pt`
+- `models/yolo_tail60_prefall_accel_robust_classifier.joblib`
+- `models/skeleton_feature_fusion_tuned.pt`
 
 仅上半身可见时可以继续判断；人体关键点完全丢失超过短暂容忍窗口时显示 Unknown。
 

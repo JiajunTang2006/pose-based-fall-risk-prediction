@@ -37,6 +37,7 @@ UPPER_BODY_ACCEL_FEATURE_COLUMNS = UPPER_BODY_ML_FEATURE_COLUMNS + (
 
 
 class StandingFeatureCalibrator:
+    """Normalize motion features against a reliable standing baseline."""
 
     def __init__(
         self,

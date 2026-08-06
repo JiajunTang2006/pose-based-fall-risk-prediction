@@ -6,8 +6,6 @@
 
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![Grouped evaluation](https://img.shields.io/badge/evaluation-grouped%205--fold-6F42C1)
-![Algorithm tests](https://img.shields.io/badge/algorithm%20tests-104%20passed-2EA44F)
-![macOS tests](https://img.shields.io/badge/macOS%20tests-106%20passed-2EA44F)
 
 [Evolution](#development-timeline) · [Results](#results) · [Datasets](#datasets) · [Reproduction](#reproduction) · [Runtime inference](#runtime-inference) · [macOS app](#macos-app)
 
